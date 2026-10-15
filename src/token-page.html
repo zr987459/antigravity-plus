@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f17">
+<title>Token 获取助手 · Antigravity Gateway</title>
+<style>
+  :root {
+    --bg: #0b0f17;
+    --surface: #121826;
+    --surface-2: #0e1420;
+    --border: #1f2a3d;
+    --border-strong: #2b3a55;
+    --text: #e6edf6;
+    --sub: #8a9ab5;
+    --dim: #5f6f8a;
+    --primary: #4f9dff;
+    --primary-soft: rgba(79, 157, 255, 0.12);
+    --violet: #9b8cff;
+    --success: #22c55e;
+    --success-soft: rgba(34, 197, 94, 0.12);
+    --danger: #f2555a;
+    --danger-soft: rgba(242, 85, 90, 0.12);
+    --radius: 14px;
+    --radius-sm: 9px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.55; min-height: 100vh;
+    padding: max(14px, env(safe-area-inset-top)) 14px calc(48px + env(safe-area-inset-bottom));
+  }
+  a { color: var(--primary); }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; border: 1px solid var(--border); word-break: break-all; }
+  button { font: inherit; }
+
+  .container { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 2px 10px; }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .brand-icon { flex: none; width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--primary), var(--violet)); display: grid; place-items: center; font-size: 18px; box-shadow: 0 6px 20px rgba(79,157,255,.25); }
+  .brand-name { font-weight: 700; font-size: 1.05rem; }
+  .brand-sub { font-size: .72rem; color: var(--sub); }
+  .back { font-size: .78rem; text-decoration: none; color: var(--sub); border: 1px solid var(--border-strong); padding: 6px 12px; border-radius: 999px; white-space: nowrap; }
+  .back:hover { color: var(--text); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .step-head { display: flex; align-items: center; gap: 10px; }
+  .step-num { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: .8rem; font-weight: 700; background: var(--primary-soft); color: var(--primary); border: 1px solid rgba(79,157,255,.35); }
+  .card.done .step-num { background: var(--success-soft); color: var(--success); border-color: rgba(34,197,94,.35); }
+  .step-title { font-size: .95rem; font-weight: 650; }
+  .hint { font-size: .78rem; color: var(--sub); }
+  .tip { font-size: .76rem; color: var(--sub); background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 0 8px 8px 0; padding: 8px 12px; }
+  .tip b { color: var(--text); }
+  .tip code { white-space: nowrap; word-break: normal; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 40px; padding: 0 16px; border-radius: var(--radius-sm); border: 1px solid transparent; font-size: .85rem; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; transition: background .15s, opacity .15s, transform .05s; -webkit-tap-highlight-color: transparent; }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-block { width: 100%; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: #3d8cf0; }
+  .btn-success { background: var(--success); color: #05210f; }
+  .btn-ghost { background: transparent; color: var(--text); border-color: var(--border-strong); }
+  .btn-ghost:hover { background: var(--surface-2); }
+  .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rot .7s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg) } }
+
+  .field-label { font-size: .74rem; color: var(--sub); margin-bottom: 5px; display: block; }
+  .input, textarea { width: 100%; background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font-family: var(--mono); font-size: .8rem; outline: none; transition: border-color .15s; }
+  .input { height: 40px; padding: 0 12px; }
+  textarea { padding: 10px 12px; resize: none; line-height: 1.45; }
+  .input:focus, textarea:focus { border-color: var(--primary); }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+
+  .msg { display: none; font-size: .78rem; padding: 9px 12px; border-radius: 8px; }
+  .msg.show { display: block; }
+  .msg.ok { background: var(--success-soft); color: var(--success); }
+  .msg.err { background: var(--danger-soft); color: var(--danger); }
+
+  .result { display: none; flex-direction: column; gap: 10px; background: var(--surface-2); border: 1px solid rgba(34,197,94,.35); border-radius: 12px; padding: 12px; }
+  .result.show { display: flex; }
+  .result-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-weight: 600; font-size: .85rem; }
+  .email { font-family: var(--mono); font-size: .76rem; color: var(--primary); background: var(--primary-soft); border: 1px solid rgba(79,157,255,.3); padding: 3px 9px; border-radius: 999px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .warn-note { font-size: .72rem; color: var(--dim); }
+
+  .divider { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: .72rem; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+  #toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px); opacity: 0; pointer-events: none; background: #1b2436; color: var(--text); border: 1px solid var(--border-strong); padding: 9px 16px; border-radius: 999px; font-size: .8rem; box-shadow: 0 10px 30px rgba(0,0,0,.4); transition: opacity .2s, transform .2s; z-index: 99; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<div class="container">
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🔑</div>
+      <div>
+        <div class="brand-name">Token 获取助手</div>
+        <div class="brand-sub">获取 Google Refresh Token 并加入账号池</div>
+      </div>
+    </div>
+    <a class="back" href="/">← 控制台</a>
+  </header>
+
+  <!-- Step 1 -->
+  <section class="card" id="card-1">
+    <div class="step-head"><div class="step-num">1</div><div class="step-title">登录 Google 授权</div></div>
+    <div class="hint">登录完成后浏览器会跳到 <code>localhost:51121/oauth-callback?…</code> 并显示“无法访问此网站”，这是<b>正常的</b>，不要关掉那个页面。</div>
+    <div class="row">
+      <button class="btn btn-primary" id="btn-auth" disabled><span class="spin"></span>加载中</button>
+      <button class="btn btn-ghost" id="btn-copy-auth" style="flex:0 0 auto;" disabled>复制链接</button>
+    </div>
+  </section>
+
+  <!-- Step 2 -->
+  <section class="card" id="card-2">
+    <div class="step-head"><div class="step-num">2</div><div class="step-title">粘贴跳转网址，换取 Token</div></div>
+    <div class="tip">在那个报错页点地址栏，<b>全选复制完整网址</b>（必须包含 <code>code=</code>）。</div>
+    <div>
+      <label class="field-label" for="input-code">跳转网址或 Code</label>
+      <input class="input" type="text" id="input-code" placeholder="http://localhost:51121/oauth-callback?code=4/0A..." autocomplete="off" spellcheck="false">
+    </div>
+    <button class="btn btn-primary btn-block" id="btn-exchange">提取 Refresh Token</button>
+    <div class="msg" id="err-msg"></div>
+
+    <div class="result" id="result-box">
+      <div class="result-head"><span>✓ 提取成功</span><span class="email" id="res-email">-</span></div>
+      <div>
+        <label class="field-label" for="res-token">Refresh Token（长期有效，请妥善保管）</label>
+        <textarea id="res-token" rows="3" readonly></textarea>
+      </div>
+      <div class="row">
+        <button class="btn btn-ghost" id="btn-copy">复制 Token</button>
+        <button class="btn btn-success" id="btn-import">加入账号池</button>
+      </div>
+      <div class="msg" id="succ-msg"></div>
+    </div>
+  </section>
+
+  <div class="divider">或者</div>
+
+  <!-- Step 3 -->
+  <section class="card">
+    <div class="step-head"><div class="step-num">⇢</div><div class="step-title">已有 Refresh Token？直接导入</div></div>
+    <div class="row">
+      <input class="input" type="text" id="input-direct-token" placeholder="1//04... 开头的 Refresh Token" autocomplete="off" spellcheck="false">
+    </div>
+    <button class="btn btn-ghost btn-block" id="btn-direct-add">验证并导入</button>
+    <div class="msg" id="direct-msg"></div>
+  </section>
+
+  <!-- Step 4: Hark 凭据助手 -->
+  <section class="card" style="border:1px solid rgba(168,85,247,0.35);background:rgba(168,85,247,0.04)">
+    <div class="step-head">
+      <div class="step-num" style="background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff">🍪</div>
+      <div class="step-title">Hark (Claude Opus 5.5) 凭据导入</div>
+    </div>
+    <p class="desc" style="color:var(--sub);margin-bottom:10px">
+      使用手机端 <b>CookieBox</b> 打开 <code>hark.com</code> 正常登录，点击「提取 Cookie」➔「复制全串」，直接粘贴在下方，一键解析导入并探测 800万/天 额度。
+    </p>
+    <div class="row" style="margin-bottom:8px">
+      <input class="input" type="text" id="input-hark-name" placeholder="账号备注名（例如：Hark-主号）" autocomplete="off">
+    </div>
+    <div class="row">
+      <textarea class="input" id="input-hark-cookie" rows="3" placeholder="粘贴 CookieBox 提取的 Cookie 或 __Secure-hark.session_token" style="font-family:var(--mono);font-size:12px;width:100%"></textarea>
+    </div>
+    <button class="btn btn-primary btn-block" id="btn-hark-add" style="margin-top:10px;background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff">解析并导入 Hark 账号</button>
+    <div class="msg" id="hark-msg"></div>
+  </section>
+</div>
+
+<script>
+// 管理密钥：与控制台共用（同源 localStorage），缺失时提示输入
+(function () {
+  const _fetch = window.fetch.bind(window);
+  const getKey = () => { try { return localStorage.getItem('ag-admin') || ''; } catch (e) { return ''; } };
+  window.fetch = async (u, o = {}) => {
+    let key = getKey();
+    const go = k => _fetch(u, Object.assign({}, o, { headers: Object.assign({}, o.headers || {}, k ? { 'x-admin-key': k } : {}) }));
+    let r = await go(key);
+    if (r.status === 401 && String(u).startsWith('/api/')) {
+      const k = prompt('需要管理密钥（控制台登录用的那个）');
+      if (k) { try { localStorage.setItem('ag-admin', k.trim()); } catch (e) {} r = await go(k.trim()); }
+    }
+    return r;
+  };
+})();
+const $ = id => document.getElementById(id);
+
+let toastTimer;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.className = 'show';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = '', 2200);
+}
+async function copyVal(str) {
+  try { await navigator.clipboard.writeText(str); }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = str; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (_) {} ta.remove();
+  }
+  toast('已复制');
+}
+function setMsg(el, type, text) {
+  if (!type) { el.className = 'msg'; el.textContent = ''; return; }
+  el.className = 'msg show ' + type; el.textContent = text;
+}
+function setBusy(btn, busy, label) {
+  if (busy) { btn.dataset.label = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>' + (label || ''); }
+  else { btn.disabled = false; if (btn.dataset.label) btn.innerHTML = btn.dataset.label; }
+}
+
+// Step 1: 授权链接
+let authUrl = '';
+(async () => {
+  const btn = $('btn-auth');
+  try {
+    const res = await fetch('/api/gemini/auth', { method: 'POST' });
+    const data = await res.json();
+    authUrl = data.auth_url || '';
+  } catch (e) {}
+  if (authUrl) {
+    btn.disabled = false; btn.innerHTML = '🔗 打开 Google 授权登录';
+    $('btn-copy-auth').disabled = false;
+  } else {
+    btn.innerHTML = '获取授权链接失败';
+  }
+})();
+$('btn-auth').onclick = () => { if (authUrl) { window.open(authUrl, '_blank'); $('card-1').classList.add('done'); } };
+$('btn-copy-auth').onclick = () => authUrl && copyVal(authUrl);
+
+// Step 2: 换票
+async function exchange() {
+  const btn = $('btn-exchange');
+  const val = $('input-code').value.trim();
+  setMsg($('err-msg')); setMsg($('succ-msg'));
+  $('result-box').classList.remove('show');
+  if (!val) return setMsg($('err-msg'), 'err', '请先粘贴含有 code= 的完整网址或 Code');
+
+  setBusy(btn, true, '正在向 Google 换取…');
+  try {
+    const res = await fetch('/api/oauth/token-exchange', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code_or_url: val })
+    });
+    const data = await res.json();
+    if (data.ok && data.refreshToken) {
+      $('res-email').textContent = data.email || 'Google 账号';
+      $('res-token').value = data.refreshToken;
+      $('result-box').classList.add('show');
+      $('card-2').classList.add('done');
+      const imp = $('btn-import'); imp.disabled = false; imp.textContent = '加入账号池';
+    } else {
+      setMsg($('err-msg'), 'err', data.error || '换票失败，code 可能已过期，请重新登录授权');
+    }
+  } catch (e) {
+    setMsg($('err-msg'), 'err', '网络异常：' + e.message);
+  } finally {
+    setBusy(btn, false);
+  }
+}
+$('btn-exchange').onclick = exchange;
+$('input-code').addEventListener('keydown', e => { if (e.key === 'Enter') exchange(); });
+
+$('btn-copy').onclick = () => copyVal($('res-token').value);
+
+$('btn-import').onclick = async () => {
+  const btn = $('btn-import');
+  setBusy(btn, true, '加入中');
+  try {
+    const res = await fetch('/api/accounts/add-token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: $('res-token').value, email: $('res-email').textContent })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btn.disabled = true; btn.textContent = '✓ 已加入';
+      setMsg($('succ-msg'), 'ok', '账号已加入账号池，可以回控制台使用了');
+    } else {
+      setBusy(btn, false);
+      setMsg($('succ-msg'), 'err', '导入失败：' + (data.error || '未知错误'));
+    }
+  } catch (e) {
+    setBusy(btn, false);
+    setMsg($('succ-msg'), 'err', '导入失败：' + e.message);
+  }
+};
+
+// Step 3: 直接导入
+async function directAdd() {
+  const btn = $('btn-direct-add');
+  const input = $('input-direct-token');
+  const msg = $('direct-msg');
+  const val = input.value.trim();
+  setMsg(msg);
+  if (!val) return setMsg(msg, 'err', '请输入 Refresh Token');
+
+  setBusy(btn, true, '验证中');
+  try {
+    const res = await fetch('/api/accounts/add-token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: val })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setMsg(msg, 'ok', `✓ 账号 ${data.email || ''} 已验证并加入账号池`);
+      input.value = '';
+    } else {
+      setMsg(msg, 'err', data.error || '验证失败');
+    }
+  } catch (e) {
+    setMsg(msg, 'err', '网络异常：' + e.message);
+  } finally {
+    setBusy(btn, false);
+  }
+}
+$('btn-direct-add').onclick = directAdd;
+$('input-direct-token').addEventListener('keydown', e => { if (e.key === 'Enter') directAdd(); });
+
+// Step 4: Hark 导入
+async function harkAdd() {
+  const btn = $('btn-hark-add');
+  const nameIpt = $('input-hark-name');
+  const cookieIpt = $('input-hark-cookie');
+  const msg = $('hark-msg');
+  const cookie = cookieIpt.value.trim();
+  setMsg(msg);
+  if (!cookie) return setMsg(msg, 'err', '请先粘贴 Hark Cookie');
+  
+  setBusy(btn, true, '正在连接 Hark 探测余额…');
+  try {
+    const res = await fetch('/api/hark/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nameIpt.value.trim(), cookie })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const testRes = await fetch('/api/hark/accounts/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: data.account.id })
+      });
+      const testData = await testRes.json();
+      const emailTip = testData.email ? ` [${testData.email}]` : '';
+      const quotaTip = testData.billing ? ` · 今日额度 ${(testData.billing.dailyRemaining/10000).toFixed(0)}万 Token` : '';
+      setMsg(msg, 'ok', `✓ 账号${emailTip} 导入成功${quotaTip}！可直接在网关使用！`);
+      nameIpt.value = '';
+      cookieIpt.value = '';
+    } else {
+      setMsg(msg, 'err', data.error || '导入失败');
+    }
+  } catch (e) {
+    setMsg(msg, 'err', '网络异常: ' + e.message);
+  } finally {
+    setBusy(btn, false);
+  }
+}
+$('btn-hark-add').onclick = harkAdd;
+</script>
+</body>
+</html>

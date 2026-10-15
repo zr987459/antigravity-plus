@@ -1,0 +1,4 @@
+-keepclasseswithmembernames class * { native <methods>; }
+-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
+-keep class com.antigravity.gateway.NodeService { *; }
+-keepattributes JavascriptInterface

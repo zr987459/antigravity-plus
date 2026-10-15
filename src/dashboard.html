@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#07090c">
+<title>Antigravity Gateway</title>
+<style>
+  :root {
+    --paper: #07090c;
+    --paper-2: #0f141a;
+    --ink: #e9f3f5;
+    --ink-2: #c3d2d6;
+    --ink-3: #93a7ad;
+    --rule: #1f2a33;
+    --rule-strong: #2f4350;
+    --signal: #00e5ff;
+    --ok: #3dff9a;
+    --warn: #ffc53d;
+    --bad: #ff4d6a;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+    padding: max(18px, env(safe-area-inset-top)) 18px calc(56px + env(safe-area-inset-bottom));
+  }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; }
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  /* Masthead */
+  .mast { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 14px; border-bottom: 2px solid var(--rule-strong); }
+  .wordmark { font-weight: 800; font-size: 26px; line-height: .95; letter-spacing: -0.8px; text-transform: uppercase; }
+  .wordmark span { display: block; color: var(--signal); }
+  .mast-meta { text-align: right; font-family: var(--mono); font-size: 11px; color: var(--ink-2); line-height: 1.7; text-transform: uppercase; letter-spacing: .5px; }
+  .status { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 700; }
+  .status i { width: 8px; height: 8px; background: var(--warn); display: inline-block; }
+  .status.ok i { background: var(--ok); animation: blink 1.6s steps(2) infinite; }
+  .status.err i { background: var(--bad); }
+  @keyframes blink { 50% { opacity: .25 } }
+
+  /* Readout strip */
+  .readout { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--rule); }
+  .cell { padding: 14px 12px 14px 0; min-width: 0; }
+  .cell + .cell { padding-left: 12px; border-left: 1px solid var(--rule); }
+  .label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; color: var(--ink-3); }
+  .num { font-family: var(--mono); font-size: 26px; font-weight: 600; letter-spacing: -1px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  @media (max-width: 600px) {
+    .readout { grid-template-columns: 1fr 1fr; }
+    .cell:nth-child(3) { padding-left: 0; border-left: 0; }
+    .cell:nth-child(n+3) { border-top: 1px solid var(--rule); }
+    .num { font-size: 22px; }
+  }
+
+  /* Sections */
+  section { padding: 26px 0 6px; }
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .sec-title { display: flex; align-items: baseline; gap: 10px; }
+  .sec-no { font-family: var(--mono); font-size: 11px; color: var(--signal); font-weight: 700; }
+  .sec-name { font-size: 17px; font-weight: 750; letter-spacing: -.3px; }
+  .sec-note { font-size: 12px; color: var(--ink-3); margin-top: -8px; margin-bottom: 14px; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--ink); background: transparent; font-family: var(--mono); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; text-decoration: none; white-space: nowrap; border-radius: 0; -webkit-tap-highlight-color: transparent; transition: background .12s, color .12s; }
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-solid { background: var(--ink); color: var(--paper); }
+  .btn-solid:hover { background: var(--signal); border-color: var(--signal); }
+  .btn-signal { background: var(--signal); border-color: var(--signal); color: #fff; }
+  .btn-signal:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+  .btn-text { border-color: transparent; padding: 0 4px; height: 26px; color: var(--ink-2); }
+  .btn-text:hover { background: transparent; color: var(--signal); }
+  .btn-text.danger:hover { color: var(--bad); }
+  .busy::after { content: ""; width: 10px; height: 10px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rot .7s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg) } }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Quota */
+  .quota-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+  @media (max-width: 600px) { .quota-grid { grid-template-columns: 1fr; } }
+  .q-group { border-top: 1px solid var(--rule-strong); padding-top: 10px; margin-bottom: 18px; }
+  .q-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .q-name { font-weight: 700; font-size: 14px; }
+  .q-name small { font-weight: 400; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
+  .tag { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+  .tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); } .tag.bad { color: var(--bad); } .tag.na { color: var(--ink-3); }
+  .q-row { display: grid; grid-template-columns: 38px 1fr 46px; align-items: center; gap: 10px; padding: 7px 0; }
+  .q-row + .q-row { border-top: 1px dashed var(--rule); }
+  .q-win { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+  .q-pct { font-family: var(--mono); font-weight: 700; font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { position: relative; height: 14px; background: repeating-linear-gradient(90deg, var(--paper-2) 0 calc(5% - 2px), transparent calc(5% - 2px) 5%); }
+  .bar > i { position: absolute; inset: 0 auto 0 0; width: 0; background: repeating-linear-gradient(90deg, var(--ink) 0 calc(5% - 2px), transparent calc(5% - 2px) 5%); background-size: calc(100% / var(--w, 1)) 100%; transition: width .6s cubic-bezier(.2,.8,.2,1); }
+  .bar.warn > i { background-image: repeating-linear-gradient(90deg, var(--warn) 0 calc(5% - 2px), transparent calc(5% - 2px) 5%); }
+  .bar.bad > i { background-image: repeating-linear-gradient(90deg, var(--bad) 0 calc(5% - 2px), transparent calc(5% - 2px) 5%); }
+  .q-reset { grid-column: 2 / 4; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); margin-top: -4px; }
+  .foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .4px; }
+  .foot b { color: var(--ink); font-weight: 600; text-transform: none; letter-spacing: 0; }
+
+  /* Tables */
+  .tbl { width: 100%; border-collapse: collapse; }
+  .tbl th { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .8px; text-transform: uppercase; color: var(--ink-3); text-align: left; padding: 0 8px 8px 0; border-bottom: 1px solid var(--rule-strong); }
+  .tbl td { padding: 11px 8px 11px 0; border-bottom: 1px solid var(--rule); vertical-align: top; font-size: 13px; }
+  .tbl .mono { font-family: var(--mono); font-size: 12.5px; }
+  .tbl .r { text-align: right; padding-right: 0; }
+  .muted { color: var(--ink-3); }
+  .preview { color: var(--ink-2); font-size: 12.5px; word-break: break-word; }
+  .empty-row td { text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 11.5px; padding: 22px 0; text-transform: uppercase; letter-spacing: .5px; }
+  @media (max-width: 600px) {
+    .tbl.test thead { display: none; }
+    .tbl.test tr { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 12px; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+    .tbl.test td { border: 0; padding: 0; }
+    .tbl.test td.preview-cell { grid-column: 1 / -1; }
+    .tbl.test .empty-row { display: block; }
+    .tbl.test .empty-row td { display: block; }
+  }
+
+  /* Accounts */
+  .acc-row td:first-child { width: 22px; }
+  .marker { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--ink-3); margin-top: 4px; }
+  .acc-row.active .marker { background: var(--signal); border-color: var(--signal); }
+  .acc-email { font-family: var(--mono); font-size: 13px; word-break: break-all; }
+  .acc-row.active .acc-email { font-weight: 700; }
+  .acc-role { font-size: 11.5px; color: var(--ink-3); }
+
+  /* Add panel */
+  .add { display: none; border: 1px solid var(--ink); background: var(--paper-2); margin-bottom: 16px; }
+  .add.open { display: block; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--ink); }
+  .seg button { height: 38px; border: 0; background: transparent; font-family: var(--mono); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; color: var(--ink-3); }
+  .seg button + button { border-left: 1px solid var(--ink); }
+  .seg button.on { background: var(--ink); color: var(--paper); }
+  .pane { display: none; padding: 14px; flex-direction: column; gap: 12px; }
+  .pane.on { display: flex; }
+  .steps { list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 22px 1fr; }
+  .steps li::before { content: counter(s, decimal-leading-zero); font-family: var(--mono); font-size: 11px; color: var(--signal); font-weight: 700; padding-top: 1px; }
+  .steps b { color: var(--ink); }
+  .hint { font-size: 12.5px; color: var(--ink-2); }
+  .hint a { color: var(--signal); font-weight: 600; text-decoration: none; border-bottom: 1px solid currentColor; }
+  .line { display: flex; gap: 0; }
+  .input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--ink); border-right: 0; background: var(--paper); font-family: var(--mono); font-size: 12.5px; color: var(--ink); outline: none; border-radius: 0; }
+  .input:focus { background: #fff; }
+  .line .btn { height: 40px; }
+  code { font-family: var(--mono); font-size: .92em; background: var(--paper); padding: 0 4px; border: 1px solid var(--rule); white-space: nowrap; }
+  .msg { display: none; font-family: var(--mono); font-size: 11.5px; padding: 8px 14px; border-top: 1px solid var(--ink); }
+  .msg.show { display: block; }
+  .msg.info { color: var(--ink-2); } .msg.ok { color: var(--ok); } .msg.err { color: var(--bad); }
+
+  /* Config */
+  .kv { border-top: 1px solid var(--rule-strong); }
+  .kv-row { display: grid; grid-template-columns: 120px 1fr auto; gap: 12px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+  @media (max-width: 600px) { .kv-row { grid-template-columns: 1fr auto; } .kv-row .label { grid-column: 1 / -1; } }
+  .kv-val { font-family: var(--mono); font-size: 12.5px; word-break: break-all; white-space: pre-wrap; min-width: 0; }
+  .models { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .model { font-family: var(--mono); font-size: 12.5px; cursor: pointer; border-bottom: 1px dotted var(--ink-3); }
+  .model:hover { color: var(--signal); border-color: var(--signal); }
+  .model small { color: var(--ink-3); font-family: var(--sans); font-size: 11px; margin-left: 4px; }
+
+  .colophon { margin-top: 34px; padding-top: 12px; border-top: 2px solid var(--rule-strong); display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .6px; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); transform: translate(-50%, 12px); opacity: 0; pointer-events: none; background: var(--ink); color: var(--paper); padding: 10px 16px; font-family: var(--mono); font-size: 12px; transition: opacity .18s, transform .18s; z-index: 99; max-width: calc(100vw - 32px); }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.err { background: var(--bad); }
+
+  /* ===== App shell (single screen) ===== */
+  html, body { height: 100%; }
+  body { padding: 0; overflow: hidden; }
+  .app { height: 100dvh; max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; border-left: 1px solid transparent; }
+  @media (min-width: 560px) { .app { border-left: 1px solid var(--rule); border-right: 1px solid var(--rule); } }
+  .topbar { position: relative; z-index: 60; flex: none; display: flex; justify-content: space-between; align-items: center; padding: calc(12px + env(safe-area-inset-top)) 16px 10px; border-bottom: 2px solid var(--rule-strong); }
+  .topbar .wordmark { font-size: 17px; letter-spacing: -.4px; line-height: 1; }
+  .topbar .wordmark span { display: inline; margin-left: 4px; }
+  .topbar .status { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .view-head { flex: none; display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 0; }
+  .view-head .sec-title { gap: 8px; }
+  .view-head .sec-name { font-size: 22px; letter-spacing: -.6px; }
+  .subnav { flex: none; display: flex; gap: 18px; padding: 10px 16px 0; border-bottom: 1px solid var(--rule); overflow-x: auto; scrollbar-width: none; }
+  .subnav::-webkit-scrollbar { display: none; }
+  .subnav button { border: 0; background: none; padding: 6px 0 9px; font-family: var(--mono); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--ink-3); cursor: pointer; position: relative; white-space: nowrap; }
+  .subnav button.on { color: var(--ink); }
+  .subnav button.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--signal); }
+  .subnav .count { color: var(--signal); margin-left: 4px; }
+  .views { flex: 1; min-height: 0; position: relative; }
+  .view { position: absolute; inset: 0; display: none; flex-direction: column; padding: 0; }
+  .view.on { display: flex; animation: vin .18s ease-out; }
+  @keyframes vin { from { opacity: 0; transform: translateY(4px) } }
+  .body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px 16px; -webkit-overflow-scrolling: touch; }
+  .sub { display: none; } .sub.on { display: block; }
+  .tabbar { flex: none; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 2px solid var(--rule-strong); background: var(--paper); padding-bottom: env(safe-area-inset-bottom); }
+  .tabbar button { border: 0; background: none; height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; color: var(--ink-3); -webkit-tap-highlight-color: transparent; position: relative; }
+  .tabbar button + button { border-left: 1px solid var(--rule); }
+  .tabbar .tno { font-family: var(--mono); font-size: 10px; font-weight: 700; }
+  .tabbar .tname { font-size: 13px; font-weight: 700; }
+  .tabbar button.on { color: var(--ink); background: var(--paper-2); }
+  .tabbar button.on .tno { color: var(--signal); }
+  .tabbar button.on::before { content: ""; position: absolute; top: -2px; left: 0; right: 0; height: 2px; background: var(--signal); }
+  .readout { border-top: 1px solid var(--rule-strong); }
+  .readout .num { font-size: 22px; }
+  .q-group:first-child { margin-top: 4px; }
+  .add { display: block; border: 1px solid var(--ink); }
+  .snippet { border: 1px solid var(--ink); background: var(--paper-2); }
+  .snippet-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--ink); }
+  .snippet pre { margin: 0; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.65; white-space: pre-wrap; word-break: break-all; }
+  .note { font-size: 12.5px; color: var(--ink-2); margin: 12px 0; }
+  .bigaction { display: flex; gap: 8px; margin-top: 14px; }
+  .bigaction .btn { flex: 1; height: 42px; }
+  @media (max-width: 600px) { .readout { grid-template-columns: 1fr 1fr; } }
+
+  /* ===== v4: one screen + sheets, larger type ===== */
+  .label { font-size: 12px; letter-spacing: .4px; color: var(--ink-3); font-weight: 600; }
+  .tag { font-size: 12.5px; letter-spacing: .3px; }
+  .btn { font-size: 13px; letter-spacing: .3px; height: 38px; padding: 0 14px; }
+  .btn-text { font-size: 13.5px; height: 34px; color: var(--ink); }
+  .q-win { font-size: 13px; color: var(--ink); font-weight: 600; }
+  .q-pct { font-size: 15px; }
+  .q-reset { font-size: 12px; color: var(--ink-3); }
+  .acc-email { font-size: 14.5px; }
+  .acc-role { font-size: 13px; color: var(--ink-3); }
+  .tbl td { font-size: 14px; }
+  .tbl .mono { font-size: 13.5px; }
+  .preview { font-size: 13.5px; color: var(--ink-2); }
+  .input { font-size: 14px; height: 44px; }
+  .line .btn { height: 44px; }
+  .steps { font-size: 14px; color: var(--ink); gap: 8px; }
+  .steps li::before { font-size: 13px; }
+  .note, .hint { font-size: 14px; color: var(--ink-2); }
+  .kv-val { font-size: 13.5px; }
+  .model { font-size: 14px; }
+  .model small { font-size: 12px; }
+  .msg { font-size: 13px; }
+  .snippet pre { font-size: 13px; }
+  #toast { font-size: 14px; }
+
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 16px 40px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .stats .cell { padding: 12px 14px; background: var(--paper); border: 0; min-width: 0; }
+  .stats .label { font-size: 10.5px; letter-spacing: .6px; }
+  .stats .num { font-size: clamp(20px, 7vw, 30px); letter-spacing: -.5px; margin-top: 3px; line-height: 1.05;
+    white-space: nowrap; overflow: hidden; text-overflow: clip; font-variant-numeric: tabular-nums; }
+  .block { padding-top: 18px; }
+  .block-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .block-title { font-size: 18px; font-weight: 800; letter-spacing: -.3px; }
+  .block-title .sec-no { margin-right: 8px; font-size: 13px; }
+  .qmini { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  .qmini .q-group { margin: 0; padding-top: 8px; border-top: 1px solid var(--rule-strong); }
+  .qmini .q-row { grid-template-columns: 26px 1fr 40px; gap: 8px; padding: 6px 0; }
+  .qmini .q-reset { grid-column: 1 / 4; margin-top: -2px; }
+  .qmini .bar { height: 12px; }
+  .qmini .q-name { font-size: 15px; }
+  .foot { font-size: 12px; color: var(--ink-3); margin-top: 10px; letter-spacing: .2px; }
+
+  .dock { flex: none; display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 2px solid var(--rule-strong); background: var(--paper); }
+  .dock .btn { height: 48px; font-size: 14.5px; }
+
+  .menu-wrap { position: relative; }
+  .icon-btn { width: 38px; height: 38px; border: 1px solid var(--ink); background: transparent; font-size: 18px; font-weight: 800; cursor: pointer; line-height: 1; }
+  .icon-btn:active { background: var(--ink); color: var(--paper); }
+  .dropdown { position: absolute; right: 0; top: 44px; min-width: 190px; background: var(--paper); border: 1px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); display: none; z-index: 30; }
+  .dropdown.open { display: block; }
+  .dropdown button, .dropdown a { display: flex; justify-content: space-between; width: 100%; padding: 13px 14px; border: 0; background: none; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer; text-decoration: none; color: var(--ink); }
+  .dropdown > * + * { border-top: 1px solid var(--rule); }
+  .dropdown button:active, .dropdown a:active { background: var(--paper-2); }
+  .dropdown .k { color: var(--ink-3); font-family: var(--mono); font-size: 13px; }
+  .topbar-r { display: flex; align-items: center; gap: 12px; }
+  .topbar .status { font-size: 12.5px; }
+
+  .scrim { position: fixed; inset: 0; background: rgba(22,21,19,.45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 40; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .sheet { position: fixed; left: 50%; bottom: 0; width: 100%; max-width: 520px; max-height: 86dvh; transform: translate(-50%, 100%); transition: transform .26s cubic-bezier(.2,.8,.2,1); background: var(--paper); border-top: 2px solid var(--ink); z-index: 50; display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); }
+  .sheet.open { transform: translate(-50%, 0); }
+  .sheet-head { flex: none; display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 6px; }
+  .sheet-title { font-size: 20px; font-weight: 800; letter-spacing: -.4px; }
+  .sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px 20px; }
+  .grab { width: 40px; height: 4px; background: var(--rule); margin: 8px auto 0; }
+
+  /* ===== v5: tech / HUD skin ===== */
+  body {
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0,229,255,.10), transparent 70%),
+      linear-gradient(rgba(0,229,255,.035) 1px, transparent 1px) 0 0 / 24px 24px,
+      linear-gradient(90deg, rgba(0,229,255,.035) 1px, transparent 1px) 0 0 / 24px 24px,
+      var(--paper);
+  }
+  .app { background: transparent; }
+  @media (min-width: 560px) { .app { border-color: var(--rule); } }
+  .topbar { border-bottom: 1px solid var(--rule-strong); background: rgba(7,9,12,.75); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .wordmark { font-family: var(--mono); font-weight: 700; letter-spacing: .5px; }
+  .topbar .wordmark { font-size: 15px; }
+  .wordmark span { color: var(--signal); text-shadow: 0 0 12px rgba(0,229,255,.55); }
+  .status { color: var(--ink); }
+  .status i { border-radius: 50%; }
+  .status.ok i { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35 } }
+  .status.ok { color: var(--ok); }
+
+  .stats { border: 1px solid var(--rule-strong); border-radius: 8px; margin-top: 6px; background: var(--rule-strong); position: relative; }
+  .stats .cell { background: rgba(15,20,26,.82); padding: 13px 15px; }
+  .stats .num { color: #fff; text-shadow: 0 0 14px rgba(0,229,255,.25); }
+  .label { color: var(--ink-3); }
+
+  .block-title { font-family: var(--sans); color: #fff; }
+  .sec-no { color: var(--signal); font-family: var(--mono); }
+  .sec-no::before { content: "//"; opacity: .6; margin-right: 2px; }
+
+  .tbl td { border-bottom-color: var(--rule); }
+  .tbl th { border-bottom-color: var(--rule-strong); }
+  .acc-row.active .marker { background: var(--signal); border-color: var(--signal); box-shadow: 0 0 10px var(--signal); }
+  .marker { border-radius: 50%; border-color: var(--ink-3); }
+  .acc-row.active .acc-email { color: #fff; }
+  .acc-row.active .acc-role { color: var(--signal); }
+
+  .qmini .q-group { border: 1px solid var(--rule-strong); border-radius: 6px; padding: 10px 12px 6px; background: rgba(15,20,26,.7); }
+  .q-row + .q-row { border-top-color: var(--rule); }
+  .q-pct { color: #fff; }
+  .bar { background: repeating-linear-gradient(90deg, #17212a 0 calc(5% - 2px), transparent calc(5% - 2px) 5%); }
+  .bar > i { background-image: repeating-linear-gradient(90deg, var(--signal) 0 calc(5% - 2px), transparent calc(5% - 2px) 5%); filter: drop-shadow(0 0 4px rgba(0,229,255,.7)); }
+  .bar.warn > i { filter: drop-shadow(0 0 4px rgba(255,197,61,.6)); }
+  .bar.bad > i { filter: drop-shadow(0 0 4px rgba(255,77,106,.6)); }
+  .foot b { color: var(--ink); }
+
+  .btn { border-radius: 4px; border-color: var(--rule-strong); color: var(--ink); }
+  .btn:hover { background: rgba(0,229,255,.08); color: var(--signal); border-color: var(--signal); }
+  .btn-solid { background: transparent; color: var(--signal); border-color: var(--signal); }
+  .btn-solid:hover { background: var(--signal); color: #001318; }
+  .btn-signal { background: var(--signal); border-color: var(--signal); color: #001318; font-weight: 700; box-shadow: 0 0 18px rgba(0,229,255,.35); }
+  .btn-signal:hover { background: #6ff3ff; color: #001318; border-color: #6ff3ff; }
+  .btn-text { border-color: transparent; color: var(--ink-2); }
+  .btn-text:hover { background: transparent; color: var(--signal); border-color: transparent; }
+  .icon-btn { border-radius: 4px; border-color: var(--rule-strong); color: var(--ink); }
+  .icon-btn:active { background: var(--signal); color: #001318; }
+
+  .dock { background: rgba(7,9,12,.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid var(--rule-strong); }
+  .dropdown { background: #0d1218; border-color: var(--rule-strong); border-radius: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(0,229,255,.08); overflow: hidden; }
+  .dropdown button:active, .dropdown a:active { background: rgba(0,229,255,.08); }
+  .dropdown .k { color: var(--signal); }
+
+  .scrim { background: rgba(0,0,0,.6); backdrop-filter: blur(2px); }
+  .sheet { background: #0b1015; border-top: 1px solid var(--signal); border-radius: 14px 14px 0 0; box-shadow: 0 -10px 40px rgba(0,229,255,.12); }
+  .grab { background: var(--rule-strong); border-radius: 2px; }
+  .sheet-title { color: #fff; }
+  .subnav { border-bottom-color: var(--rule); }
+  .subnav button.on { color: #fff; }
+  .subnav button.on::after { box-shadow: 0 0 8px var(--signal); }
+
+  .input { background: #05080b; border-color: var(--rule-strong); color: #fff; border-radius: 4px 0 0 4px; }
+  .input:focus { background: #05080b; border-color: var(--signal); box-shadow: 0 0 0 1px var(--signal) inset; }
+  .input::placeholder { color: #5d7178; }
+  .line .btn { border-radius: 0 4px 4px 0; }
+  code { background: #05080b; border-color: var(--rule-strong); color: var(--signal); }
+  .snippet { background: #05080b; border-color: var(--rule-strong); border-radius: 6px; overflow: hidden; }
+  .snippet-head { border-bottom-color: var(--rule); }
+  .snippet pre { color: #d9f7ff; }
+  .kv { border-top-color: var(--rule-strong); }
+  .model { border-bottom-color: var(--rule-strong); }
+  .model:hover { color: var(--signal); border-color: var(--signal); }
+  .steps b { color: #fff; }
+  .note a, .hint a { color: var(--signal); }
+  .msg { border-top-color: var(--rule); }
+  #toast { background: #0d1218; color: var(--signal); border: 1px solid var(--signal); border-radius: 6px; box-shadow: 0 0 20px rgba(0,229,255,.25); }
+  #toast.err { background: #1a0b10; color: var(--bad); border-color: var(--bad); }
+
+  /* ===== v7: login + keys ===== */
+  .gate { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(7,9,12,.92); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  .gate.open { display: flex; }
+  .gate-box { width: 100%; max-width: 380px; border: 1px solid var(--rule-strong); border-radius: 10px; background: #0b1015; padding: 22px 18px; box-shadow: 0 0 40px rgba(0,229,255,.12); }
+  .gate-box h2 { font-size: 20px; color: #fff; margin-bottom: 6px; }
+  .gate-box p { font-size: 14px; color: var(--ink-2); margin-bottom: 16px; }
+  .key-row td { vertical-align: middle; }
+  .key-name { font-size: 15px; font-weight: 700; color: #fff; }
+  .key-mail { font-family: var(--mono); font-size: 12.5px; color: var(--ink-3); word-break: break-all; }
+  .key-val { font-family: var(--mono); font-size: 13px; color: var(--signal); word-break: break-all; }
+  .select { flex: 1; min-width: 0; height: 44px; padding: 0 10px; background: #05080b; color: #fff; border: 1px solid var(--rule-strong); border-radius: 4px; font-size: 14px; }
+  .form-col { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+  .newkey { display: none; border: 1px solid var(--signal); border-radius: 6px; padding: 12px; margin-bottom: 16px; background: rgba(0,229,255,.06); }
+  .newkey.show { display: block; }
+  .acc-keys { font-family: var(--mono); font-size: 12px; color: var(--signal); }
+
+  .user-mode .adm { display: none !important; }
+  .user-mode .dock { grid-template-columns: 1fr; }
+  .gw-card { flex-direction: column; gap: 12px; margin: 0 0 18px; padding: 16px; border: 1px solid var(--signal, #5ef0ff); border-radius: 14px; background: rgba(94,240,255,.06); }
+  .gw-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .gw-title { font-size: 15px; font-weight: 700; color: #fff; }
+  .gw-field { display: flex; flex-direction: column; gap: 6px; }
+  .gw-val { display: flex; align-items: center; gap: 8px; }
+  .gw-val .btn { flex: none; }
+  .gw-val code { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-all; font-family: var(--mono); font-size: 14px; line-height: 1.45; color: #fff; background: rgba(0,0,0,.35); border: 1px solid var(--rule-strong); border-radius: 8px; padding: 10px 12px; word-break: break-all; }
+  .gw-sw { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+  .gw-sw .t { font-size: 14px; color: #fff; } .gw-sw .t small { display: block; font-size: 11.5px; color: var(--ink-3); }
+  .sw { position: relative; width: 50px; height: 28px; flex: none; }
+  .sw input { opacity: 0; width: 0; height: 0; }
+  .sw i { position: absolute; inset: 0; border-radius: 28px; background: #2a323c; transition: .2s; }
+  .sw i::before { content: ""; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; border-radius: 50%; background: #fff; transition: .2s; }
+  .sw input:checked + i { background: var(--signal, #5ef0ff); }
+  .sw input:checked + i::before { transform: translateX(22px); background: #07090C; }
+  .log-row td { padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 12px; vertical-align: top; }
+  .log-row .m { font-family: var(--mono); color: #fff; word-break: break-all; }
+  .log-row .s { font-size: 11px; color: var(--ink-3); }
+  .log-row .tk { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 2px 10px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .log-row .tk b { color: var(--ink-2); font-weight: 600; }
+  .stats .num.pct { color: var(--signal); }
+  .stats .bd { margin-top: 7px; display: grid; gap: 2px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .stats .bd > div { display: flex; justify-content: space-between; gap: 6px; white-space: nowrap; }
+  .stats .bd b { color: var(--ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+  .hit-hi { color: var(--ok) !important; } .hit-mid { color: var(--signal) !important; }
+  .log-ok { color: #3ddc97; } .log-bad { color: #ff6b6b; }
+  .gw-rule { font-size: 12.5px; line-height: 1.6; color: #f5c46b; background: rgba(245,165,36,.08); border: 1px solid rgba(245,165,36,.35); border-radius: 8px; padding: 9px 11px; }
+  .gw-rule b { color: #fff; }
+  .lic-only { display: none !important; }
+  .lic-app .lic-only { display: inline-flex !important; }
+  .app-only { display: none !important; }
+  .in-app .app-only { display: flex !important; }
+  .in-app .web-only { display: none !important; }
+  .lic-app .no-lic { display: none !important; }
+  .lic-app .dock { grid-template-columns: 1.3fr 1fr 1fr; }
+  .in-app .dock { grid-template-columns: 1.3fr 1fr 1fr 1fr; }
+  .in-app.user-mode .dock, .in-app .user-mode .dock { grid-template-columns: 1fr 1fr; }
+  .in-app .dock .btn { padding: 0 6px; }
+  #sh-gw .gw-card { margin: 0; }
+  .issue-only { display: none; }
+  .can-issue .issue-only { display: block; }
+</style>
+</head>
+<body>
+<div id="toast"></div>
+<div class="app">
+  <header class="topbar">
+    <div class="wordmark">Antigravity<span>Gateway</span></div>
+    <div class="topbar-r">
+      <div class="status" id="srv-status"><i></i><span id="srv-status-text">Connecting</span></div>
+      <div class="menu-wrap">
+        <button class="icon-btn" id="menu-btn" aria-label="更多" onclick="toggleMenu()">⋯</button>
+        <div class="dropdown" id="menu">
+          <button onclick="menuGo(()=>loadQuota(true))">刷新配额 <span class="k">↻</span></button>
+          <button onclick="menuGo(()=>openSheet('sh-gemini-web-add'))">录入 Gemini Cookie <span class="k">GEMINI</span></button>
+          <button onclick="menuGo(()=>openSheet('sh-test'))">连通性测试 <span class="k">03</span></button>
+          <button onclick="menuGo(()=>openSheet('sh-conn'))">客户端接入 <span class="k">04</span></button>
+          <a href="/token" target="_blank" rel="noopener" onclick="toggleMenu(false)">Token 助手 <span class="k">↗</span></a>
+          <button class="app-only" onclick="menuGo(()=>window.AGApp && AGApp.openSettings())">网关设置 <span class="k">⚙</span></button>
+          <button class="app-only" onclick="menuGo(()=>window.AGApp && AGApp.checkUpdate && AGApp.checkUpdate())">检查更新 <span class="k">↻</span></button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="scroll">
+    <div class="stats adm">
+      <div class="cell"><div class="label">请求</div><div class="num fit" id="st-req">—</div>
+        <div class="bd"><div><span>成功</span><b id="st-req-ok">—</b></div><div><span>失败</span><b id="st-req-err">—</b></div><div><span>均延迟/首字</span><b id="st-lat">—</b></div></div></div>
+      <div class="cell"><div class="label">Tokens 合计</div><div class="num fit" id="st-tok">—</div>
+        <div class="bd"><div><span>输入</span><b id="st-tok-in">—</b></div><div><span>缓存</span><b id="st-tok-cache">—</b></div><div><span>输出</span><b id="st-tok-out">—</b></div><div><span>其中思考</span><b id="st-tok-think">—</b></div></div></div>
+      <div class="cell"><div class="label">缓存命中率</div><div class="num fit pct" id="st-cache">—</div>
+        <div class="bd"><div><span>命中</span><b id="st-cache-tok">—</b></div><div><span>提示</span><b id="st-prompt-tok">—</b></div><div><span>近24h</span><b id="st-cache-24h">—</b></div></div></div>
+      <div class="cell"><div class="label">账号</div><div class="num" id="st-acc">—</div>
+        <div class="bd"><div><span>近24h 请求</span><b id="st-24h-req">—</b></div><div><span>近24h Tokens</span><b id="st-24h-tok">—</b></div></div></div>
+    </div>
+
+    <div class="block">
+      <div class="block-head"><div class="block-title"><span class="sec-no">01</span>账号</div><span class="tag na" id="acc-count"></span></div>
+      <table class="tbl"><tbody id="acc-list"><tr class="empty-row"><td colspan="3">加载中</td></tr></tbody></table>
+    </div>
+
+    <div class="block">
+      <div class="block-head"><div class="block-title"><span class="sec-no">02</span>配额</div><button class="btn btn-text" id="btn-refresh" onclick="loadQuota(true)">刷新</button></div>
+      <div class="qmini">
+        <div class="q-group">
+          <div class="q-head"><span class="q-name">Gemini</span><span class="tag na" id="gemini-status-badge">—</span></div>
+          <div class="q-row"><span class="q-win">5H</span><div class="bar" id="bar-gemini-5h"><i id="q-gemini-5h-fill"></i></div><span class="q-pct" id="q-gemini-5h-text">—</span><span class="q-reset" id="q-gemini-5h-reset">—</span></div>
+          <div class="q-row"><span class="q-win">7D</span><div class="bar" id="bar-gemini-7d"><i id="q-gemini-7d-fill"></i></div><span class="q-pct" id="q-gemini-7d-text">—</span><span class="q-reset" id="q-gemini-7d-reset">—</span></div>
+        </div>
+        <div class="q-group">
+          <div class="q-head"><span class="q-name">Claude</span><span class="tag na" id="claude-status-badge">—</span></div>
+          <div class="q-row"><span class="q-win">5H</span><div class="bar" id="bar-claude-5h"><i id="q-claude-5h-fill"></i></div><span class="q-pct" id="q-claude-5h-text">—</span><span class="q-reset" id="q-claude-5h-reset">—</span></div>
+          <div class="q-row"><span class="q-win">7D</span><div class="bar" id="bar-claude-7d"><i id="q-claude-7d-fill"></i></div><span class="q-pct" id="q-claude-7d-text">—</span><span class="q-reset" id="q-claude-7d-reset">—</span></div>
+        </div>
+      </div>
+      <div class="foot"><span>当前 <b id="cur-acc-label">—</b></span><span id="sync-time">未同步</span></div>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <div class="block-title"><span class="sec-no">03</span>Gemini 网页版 (免 Key 直驱)</div>
+        <div class="actions">
+          <button class="btn btn-text" id="btn-gemini-refresh" onclick="loadGeminiWebData(true)">刷新</button>
+          <button class="btn btn-signal" style="padding:2px 10px;font-size:12px" onclick="openSheet('sh-gemini-web-add')">＋ 录入 Cookie</button>
+        </div>
+      </div>
+      <div class="qmini" id="gemini-status-box" style="margin-bottom:10px">
+        <div class="q-group">
+          <div class="q-head"><span class="q-name">CookieBox 直驱池</span><span class="tag ok" id="gemini-status-tag">自愈 XSRF 令牌</span></div>
+          <p class="note" style="margin:6px 0 0;font-size:12px;color:var(--muted,#888)">直接使用 CookieBox 提取的 Google 账号 Cookie，无需 API Key，自动维持鉴权心跳。</p>
+        </div>
+      </div>
+      <table class="tbl"><tbody id="gemini-web-list"><tr class="empty-row"><td colspan="3">点击刷新加载 Gemini 账号</td></tr></tbody></table>
+    </div>
+
+    <div class="block adm">
+      <div class="block-head"><div class="block-title"><span class="sec-no">04</span>日志</div><button class="btn btn-text" onclick="clearLogs()">清空</button></div>
+      <table class="tbl"><tbody id="log-list"><tr class="empty-row"><td colspan="3">还没有请求</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <nav class="dock">
+    <button class="btn btn-signal" onclick="openSheet('sh-gemini-web-add')">＋ 录入 Cookie</button>
+    <button class="btn" onclick="openSheet('sh-add')">＋ 添加 Google 账号</button>
+    <button class="btn" onclick="openSheet('sh-test')">测试</button>
+    <button class="btn" onclick="openSheet('sh-conn')">接入</button>
+    <button class="btn app-only" onclick="openSheet('sh-gw')">网关</button>
+  </nav>
+</div>
+
+<div class="scrim" id="scrim" onclick="closeSheet()"></div>
+
+<!-- Sheet: add gemini web cookie -->
+<div class="sheet" id="sh-gemini-web-add">
+  <div class="grab"></div>
+  <div class="sheet-head"><span class="sheet-title">录入 Gemini 网页版 Cookie</span><button class="btn btn-text" onclick="closeSheet()">关闭</button></div>
+  <div class="sheet-body">
+    <p class="note" style="margin-top:0">配合 CookieBox：在 CookieBox 浏览器中登录 <code>gemini.google.com</code>，点击右上角「Cookie」➔「复制全串」，直接粘贴在下方。包含 <code>SAPISID</code>、<code>__Secure-1PSID</code> 与 <code>__Secure-1PSIDTS</code>。</p>
+    <div class="line" style="margin-bottom:10px">
+      <input class="input" type="text" id="ipt-gemini-name" placeholder="账号备注（例如：我的 Google 主号）" maxlength="40">
+    </div>
+    <div style="margin-bottom:12px">
+      <textarea class="input" id="ipt-gemini-cookie" rows="4" placeholder="直接粘贴 CookieBox 导出的整段 Cookie 文本..." style="font-family:var(--mono);font-size:12px;width:100%"></textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn-signal" id="btn-submit-gemini" onclick="submitGeminiWebAccount()">保存并测试连通</button>
+    </div>
+    <div class="msg" id="msg-gemini"></div>
+  </div>
+</div>
+
+<!-- Sheet: add account -->
+<div class="sheet" id="sh-add">
+  <div class="grab"></div>
+  <div class="sheet-head"><span class="sheet-title">添加账号</span><button class="btn btn-text" onclick="closeSheet()">关闭</button></div>
+  <nav class="subnav" data-group="acc">
+    <button class="on" data-sub="acc-token-sub">粘贴 Token</button>
+    <button data-sub="acc-oauth-sub">浏览器授权</button>
+  </nav>
+  <div class="sheet-body">
+    <div class="sub on" id="acc-token-sub">
+      <p class="note" style="margin-top:0">已有 Refresh Token 直接粘贴。没有的话用「浏览器授权」获取。</p>
+      <div class="line">
+        <input class="input" type="text" id="ipt-token" placeholder="1//04..." autocomplete="off" spellcheck="false">
+        <button class="btn btn-solid" id="btn-submit-token" onclick="submitToken()">添加</button>
+      </div>
+      <div class="msg" id="msg-token"></div>
+    </div>
+    <div class="sub" id="acc-oauth-sub">
+      <ol class="steps" style="margin-bottom:14px">
+        <li><span>点「打开授权」，用 Google 账号登录</span></li>
+        <li><span>页面显示 <b>无法访问此网站</b> 是正常的，别关</span></li>
+        <li><span>复制地址栏<b>完整网址</b>（含 <code>code=</code>）</span></li>
+        <li><span>粘贴到下面，点「换票」</span></li>
+      </ol>
+      <div class="actions" style="margin-bottom:12px">
+        <a class="btn btn-solid" id="btn-oauth-link" href="#" target="_blank" rel="noopener">打开授权 ↗</a>
+        <button class="btn" onclick="copyAuthUrl()">复制链接</button>
+      </div>
+      <div class="line">
+        <input class="input" type="text" id="ipt-code" placeholder="http://localhost:51121/oauth-callback?code=..." autocomplete="off" spellcheck="false">
+        <button class="btn btn-solid" id="btn-submit-code" onclick="submitAuthCode()">换票</button>
+      </div>
+      <div class="msg" id="msg-oauth"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Sheet: test -->
+<div class="sheet" id="sh-test">
+  <div class="grab"></div>
+  <div class="sheet-head"><span class="sheet-title">连通性测试</span>
+    <div class="actions"><button class="btn btn-solid" id="btn-run-tests" onclick="runModelTest()">运行</button><button class="btn btn-text" onclick="closeSheet()">关闭</button></div>
+  </div>
+  <div class="sheet-body">
+    <table class="tbl test">
+      <thead><tr><th>模型</th><th class="r">延迟</th><th class="r">状态</th><th>返回</th></tr></thead>
+      <tbody id="test-body"><tr class="empty-row"><td colspan="4">点「运行」测试各模型</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Sheet: connect -->
+<div class="sheet" id="sh-gw">
+  <div class="grab"></div>
+  <div class="sheet-head"><span class="sheet-title">网关配置</span><button class="btn btn-text" onclick="closeSheet()">关闭</button></div>
+  <div class="sheet-body">
+    <div class="gw-card app-only" id="gw-card">
+      <div class="gw-top"><span class="gw-title">本机网关</span><span class="tag na" id="gw-state">—</span></div>
+      <label class="gw-sw"><span class="t">网关运行<small>关掉后外部客户端连不上</small></span><span class="sw"><input type="checkbox" id="sw-gw" onchange="gwToggle(this.checked)"><i></i></span></label>
+      <label class="gw-sw"><span class="t">悬浮球<small>桌面显示 AG 小球，点一下回到 App</small></span><span class="sw"><input type="checkbox" id="sw-bubble" onchange="bubbleToggle(this.checked)"><i></i></span></label>
+      <div class="gw-field"><span class="label">地址 Base URL</span>
+        <div class="gw-val"><code id="gw-url">—</code><button class="btn" onclick="copyText('gw-url')">复制</button></div></div>
+      <div class="gw-field"><span class="label">端口</span>
+        <div class="gw-val"><input class="input" id="gw-port" type="number" inputmode="numeric" min="1024" max="65535" style="flex:1;min-width:0"><button class="btn" onclick="gwSetPort()">修改</button></div></div>
+      <div class="gw-field"><span class="label">API Key</span>
+        <div class="gw-val"><code id="gw-key">—</code><button class="btn" onclick="copyText('gw-key')">复制</button></div>
+        <button class="btn" style="align-self:flex-start" onclick="gwRegen()">重新生成 Key</button></div>
+      <div class="gw-rule">协议选 <b>Anthropic (Messages)</b><br>⚠ Gemini 只走 Anthropic 协议，端点 <b>/v1/messages</b>。选 Chat Completions 会直接报错</div>
+    </div>
+  </div>
+</div>
+<div class="sheet" id="sh-conn">
+  <div class="grab"></div>
+  <div class="sheet-head"><span class="sheet-title">客户端接入</span><button class="btn btn-text" onclick="closeSheet()">关闭</button></div>
+  <nav class="subnav" data-group="conn">
+    <button class="on" data-sub="conn-claude">Claude Code</button>
+    <button data-sub="conn-cursor">通用客户端</button>
+    <button data-sub="conn-curl">cURL</button>
+    <button data-sub="conn-models">模型</button>
+  </nav>
+  <div class="sheet-body">
+    <div class="kv" style="margin-bottom:14px">
+      <div class="kv-row"><span class="label">Base URL</span><span class="kv-val" id="cfg-url">—</span><button class="btn btn-text" onclick="copyText('cfg-url')">复制</button></div>
+      <div class="kv-row app-only"><span class="label">API Key</span><span class="kv-val" id="cfg-key">—</span><button class="btn btn-text" onclick="copyText('cfg-key')">复制</button></div>
+    </div>
+    <div class="gw-rule" style="margin-bottom:14px">协议选 <b>Anthropic (Messages)</b><br>⚠ Gemini 只走 Anthropic 协议，端点 <b>/v1/messages</b>。选 Chat Completions 会直接报错</div>
+    <div class="sub on" id="conn-claude">
+      <div class="snippet"><div class="snippet-head"><span class="label">Terminal</span><button class="btn btn-text" onclick="copyText('cfg-claude-cmd')">复制</button></div><pre id="cfg-claude-cmd">—</pre></div>
+    </div>
+    <div class="sub" id="conn-cursor">
+      <p class="note" style="margin-top:0">支持自定义 Anthropic 接口的客户端都按这三项填写：</p>
+      <div class="snippet"><div class="snippet-head"><span class="label">Config</span><button class="btn btn-text" onclick="copyText('cfg-cursor')">复制</button></div><pre id="cfg-cursor">—</pre></div>
+    </div>
+    <div class="sub" id="conn-curl">
+      <div class="snippet"><div class="snippet-head"><span class="label">cURL</span><button class="btn btn-text" onclick="copyText('cfg-curl')">复制</button></div><pre id="cfg-curl">—</pre></div>
+    </div>
+    <div class="sub" id="conn-models">
+      <p class="note" style="margin-top:0">点击模型名复制</p>
+      <div class="models" id="model-chips">
+        <span class="model" data-copy="gemini-3.8-flash-high">gemini-3.8-flash-high</span>
+        <span class="model" data-copy="claude-sonnet-4-6">claude-sonnet-4-6</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let ADMIN = '';
+let USERKEY = '';
+let ME = null;
+try { ADMIN = localStorage.getItem('ag-admin') || ''; USERKEY = localStorage.getItem('ag-user') || ''; } catch (e) {}
+if (window.AGApp || /[?&]app=1/.test(location.search)) document.documentElement.classList.add('in-app');
+setTimeout(() => { try { gwFill(); } catch (e) {} }, 0);
+try { if (window.AGApp && AGApp.adminKey) { const k = AGApp.adminKey(); if (k) { ADMIN = k; USERKEY = ''; localStorage.setItem('ag-admin', k); } } } catch (e) {}
+const _fetch = window.fetch.bind(window);
+window.fetch = async (u, o = {}) => {
+  const headers = Object.assign({}, o.headers || {});
+  if (ADMIN) headers['x-admin-key'] = ADMIN;
+  else if (USERKEY) headers['x-api-key'] = USERKEY;
+  const r = await _fetch(u, Object.assign({}, o, { headers }));
+  if (r.status === 401 && String(u).startsWith('/api/') && !ME) {
+    const c = r.clone(); try { const j = await c.json(); if (j.need_admin || j.error) showGate(); } catch (e) {}
+  }
+  return r;
+};
+function showGate(msg) {
+  // 免授权码纯净模式：不弹窗拦截
+}
+async function doLogin() {
+  const v = $('ipt-admin').value.trim(); if (!v) return;
+  const r = await _fetch('/api/status', { headers: { 'x-admin-key': v } });
+  if (r.ok) {
+    ADMIN = v; USERKEY = ''; ME = null; document.body.classList.remove('user-mode');
+    try { localStorage.setItem('ag-admin', v); localStorage.removeItem('ag-user'); } catch (e) {}
+    $('gate').classList.remove('open'); $('ipt-admin').value = '';
+    await loadStatus(); loadQuota(); loadKeys();
+    return;
+  }
+  const m = await _fetch('/api/me', { headers: { 'x-api-key': v } });
+  const j = m.ok ? await m.json() : null;
+  if (j && j.role === 'user') {
+    USERKEY = v; try { localStorage.setItem('ag-user', v); localStorage.removeItem('ag-admin'); } catch (e) {}
+    $('gate').classList.remove('open'); $('ipt-admin').value = '';
+    enterUserMode(j);
+  } else showGate('密钥或授权码不对');
+}
+function logout() {
+  ADMIN = ''; USERKEY = ''; ME = null; document.body.classList.remove('user-mode');
+  try { localStorage.removeItem('ag-admin'); localStorage.removeItem('ag-user'); } catch (e) {}
+  showGate();
+}
+function fillSnippets(host, key) {
+  $('cfg-url').textContent = host;
+  $('cfg-claude-cmd').textContent = `export ANTHROPIC_BASE_URL="${host}"\nexport ANTHROPIC_API_KEY="${key}"\nclaude`;
+  $('cfg-cursor').textContent = `Base URL: ${host}\nAPI Key:  ${key}\nModel:    claude-sonnet-4-6`;
+  $('cfg-curl').textContent = `curl ${host}/v1/messages \\\n  -H "x-api-key: ${key}" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -H "content-type: application/json" \\\n  -d '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"hi"}]}'`;
+}
+function enterUserMode(me) {
+  ME = me; document.body.classList.add('user-mode');
+  activeEmail = '';
+  setServer('ok', 'Online');
+  $('cur-acc-label').textContent = me.email;
+  $('acc-count').textContent = me.name ? me.name : '';
+  $('acc-list').innerHTML = `<tr class="acc-row active"><td><span class="marker"></span></td><td><div class="acc-email">${esc(me.email)}</div><div class="acc-role">你的专属账号</div></td><td></td></tr>`;
+  fillSnippets(window.location.origin, USERKEY);
+  loadQuota(); loadModels();
+}
+let allAccounts = [];
+let allKeys = [];
+async function loadKeys() {
+  if (ME) return;
+  try {
+    const r = await fetch('/api/keys'); if (!r.ok) return;
+    const d = await r.json(); allKeys = d.keys || [];
+    const list = $('key-list');
+    list.innerHTML = allKeys.length ? allKeys.map(k => `<tr class="key-row">
+      <td><div class="key-name">${esc(k.name || '未备注')}</div><div class="key-mail">${k.bound ? '已绑定 ' + esc(k.bound) : '<span style="color:var(--warn,#f5a524)">未绑定</span>'}</div><div class="key-val">${esc(k.key.slice(0, 7))}••••${esc(k.key.slice(-4))}</div></td>
+      <td class="r" style="white-space:nowrap"><button class="btn btn-text" data-copy-key="${esc(k.key)}">复制</button><button class="btn btn-text danger" data-revoke="${esc(k.key)}">吊销</button></td>
+    </tr>`).join('') : '<tr class="empty-row"><td colspan="2">还没有授权码</td></tr>';
+    renderAccounts(allAccounts);
+  } catch (e) {}
+}
+async function createKey() {
+  const btn = $('btn-key-create'); setBusy(btn, true, '…');
+  try {
+    const d = await (await fetch('/api/keys/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('key-name').value.trim() }) })).json();
+    if (d.ok) { $('newkey-val').textContent = d.key.key; $('newkey').classList.add('show'); $('key-name').value = ''; showToast('已生成'); loadKeys(); }
+    else showToast(d.error || '生成失败', true);
+  } catch (e) { showToast('网络异常', true); } finally { setBusy(btn, false); }
+}
+document.addEventListener('click', async e => {
+  const c = e.target.closest('[data-copy-key]'); if (c) copyVal(c.dataset.copyKey);
+  const r = e.target.closest('[data-revoke]');
+  if (r && confirm('吊销后对方立刻无法使用，确定？')) {
+    await fetch('/api/keys/revoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: r.dataset.revoke }) });
+    showToast('已吊销'); loadKeys();
+  }
+});
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtNum = n => {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  n = Number(n);
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e4) return (n / 1e3).toFixed(1) + 'K';
+  return n.toLocaleString();
+};
+// 精确数值：千分位分组，不缩写
+const fmtInt = n => (n === null || n === undefined || isNaN(n)) ? '—' : Math.round(Number(n)).toLocaleString('en-US');
+const fmtPct = r => (r === null || r === undefined || isNaN(r)) ? '—' : (r * 100).toFixed(1) + '%';
+const hitRate = (input, cached) => { const d = (input || 0) + (cached || 0); return d > 0 ? (cached || 0) / d : null; };
+const hitCls = r => r === null || r === undefined ? '' : r >= 0.5 ? 'hit-hi' : r >= 0.1 ? 'hit-mid' : '';
+const fmtSec = ms => (ms === null || ms === undefined || isNaN(ms) || ms <= 0) ? '—' : (ms / 1000).toFixed(2) + 's';
+const fmtTime = l => {
+  if (!l.timestamp) return esc(l.time || '');
+  const d = new Date(l.timestamp), now = new Date(), p = v => String(v).padStart(2, '0');
+  const t = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return d.toDateString() === now.toDateString() ? t : `${p(d.getMonth() + 1)}-${p(d.getDate())} ${t}`;
+};
+// 大数字自动缩小字号，保证完整显示
+function fitNums() {
+  document.querySelectorAll('.stats .num.fit').forEach(el => {
+    el.style.fontSize = '';
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    while (el.scrollWidth > el.clientWidth + 1 && size > 11) { size -= 1; el.style.fontSize = size + 'px'; }
+  });
+}
+window.addEventListener('resize', () => { clearTimeout(window._fitT); window._fitT = setTimeout(fitNums, 120); });
+function renderStats(s) {
+  const inT = s.input_tokens || 0, caT = s.cached_tokens || 0, outT = s.output_tokens || 0;
+  $('st-req').textContent = fmtInt(s.total_requests);
+  $('st-req-ok').textContent = fmtInt(s.success_requests ?? s.total_requests);
+  $('st-req-err').textContent = fmtInt(s.error_requests ?? 0);
+  $('st-lat').textContent = fmtSec(s.avg_latency_ms) + ' / ' + fmtSec(s.avg_ttft_ms);
+  $('st-tok').textContent = fmtInt(inT + caT + outT);
+  $('st-tok-in').textContent = fmtInt(inT);
+  $('st-tok-cache').textContent = fmtInt(caT);
+  $('st-tok-out').textContent = fmtInt(outT);
+  $('st-tok-think').textContent = fmtInt(s.thoughts_tokens || 0);
+  $('st-cache').textContent = fmtPct(s.cache_hit_rate !== undefined ? s.cache_hit_rate : hitRate(inT, caT));
+  $('st-cache-tok').textContent = fmtInt(caT);
+  $('st-prompt-tok').textContent = fmtInt(inT + caT);
+  const d = s.last_24h || {};
+  $('st-cache-24h').textContent = fmtPct(d.cache_hit_rate !== undefined ? d.cache_hit_rate : hitRate(d.input, d.cached));
+  $('st-24h-req').textContent = fmtInt(d.requests ?? 0);
+  $('st-24h-tok').textContent = fmtInt(d.tokens ?? 0);
+  requestAnimationFrame(fitNums);
+}
+
+let toastTimer;
+function showToast(msg, isErr = false) {
+  const t = $('toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = '', 2200);
+}
+async function copyVal(str) {
+  try { await navigator.clipboard.writeText(str); }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = str; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (_) {} ta.remove();
+  }
+  showToast('已复制');
+}
+function copyText(id) { copyVal($(id).textContent); }
+function setBusy(btn, busy, label) {
+  if (!btn) return;
+  if (busy) { btn.dataset.label = btn.innerHTML; btn.disabled = true; btn.classList.add('busy'); btn.innerHTML = label || btn.innerHTML; }
+  else { btn.disabled = false; btn.classList.remove('busy'); if (btn.dataset.label) btn.innerHTML = btn.dataset.label; }
+}
+function setServer(state, text) {
+  $('srv-status').className = 'status ' + state; $('srv-status-text').textContent = text;
+  GW_UP = state !== 'err';
+  const sw = $('sw-gw'); if (sw) sw.checked = GW_UP;
+  const t = $('gw-state'); if (t) { t.textContent = GW_UP ? '运行中' : '已停止'; t.className = 'tag ' + (GW_UP ? 'ok' : 'na'); }
+}
+function gwFill() {
+  if (!$('gw-url')) return;
+  const k = (window.AGApp && AGApp.adminKey && AGApp.adminKey()) || ADMIN || '—';
+  $('gw-url').textContent = window.location.origin;
+  $('gw-key').textContent = k;
+  if ($('cfg-key')) $('cfg-key').textContent = k;
+  const sb = $('sw-bubble'); if (sb && window.AGApp && AGApp.isBubble) sb.checked = AGApp.isBubble();
+  const pi = $('gw-port'); if (pi && window.AGApp && AGApp.port && document.activeElement !== pi) pi.value = AGApp.port();
+}
+let GW_UP = false;
+function gwToggle(on) {
+  if (!window.AGApp) { showToast('请在 App 里操作', true); return; }
+  if (on) { AGApp.startGateway(); }
+  else if (AGApp.stopGateway) { AGApp.stopGateway(); setServer('err', 'Stopped'); }
+}
+function gwSetPort() {
+  const p = parseInt($('gw-port').value, 10);
+  if (!(p >= 1024 && p <= 65535)) return showToast('端口要在 1024 到 65535 之间', true);
+  if (window.AGApp && AGApp.port && p === AGApp.port()) return showToast('端口没变');
+  if (window.AGApp && AGApp.setPort && AGApp.setPort(p)) showToast('正在用新端口重启…');
+}
+function gwRegen() {
+  if (!confirm('重新生成后旧 Key 立刻失效，客户端要换成新 Key。继续？')) return;
+  if (window.AGApp && AGApp.regenKey) { try { localStorage.removeItem('ag-admin'); } catch (e) {} AGApp.regenKey(); }
+}
+function bubbleToggle(on) { if (window.AGApp && AGApp.setBubble) AGApp.setBubble(on, GW_UP); }
+async function loadLogs() {
+  const tb = $('log-list'); if (!tb || ME) return;
+  try {
+    const r = await fetch('/api/logs'); if (!r.ok) return;
+    const logs = (await r.json()).slice(0, 30);
+    tb.innerHTML = logs.length ? logs.map(l => {
+      const ok = l.status >= 200 && l.status < 300;
+      const t = l.tokens || {}; const i = t.input || 0, c = t.cached || 0, o = t.output || 0, th = t.thoughts || 0;
+      const tot = t.total ?? (i + c + o);
+      const hr = l.cache_hit_rate !== undefined ? l.cache_hit_rate : hitRate(i, c);
+      return `<tr class="log-row"><td><div class="m">${esc(l.model || '—')}</div><div class="s">${fmtTime(l)} · ${esc((l.email || '').split('@')[0])}${l.error ? ' · ' + esc(String(l.error).slice(0, 80)) : ''}</div><div class="tk"><span>入 <b>${fmtInt(i)}</b></span><span>缓 <b>${fmtInt(c)}</b></span><span>出 <b>${fmtInt(o)}</b></span>${th ? `<span>思考 <b>${fmtInt(th)}</b></span>` : ''}<span>命中 <b class="${hitCls(hr)}">${fmtPct(hr)}</b></span></div></td><td class="r" style="white-space:nowrap"><div class="${ok ? 'log-ok' : 'log-bad'}">${esc(l.status)}</div><div class="s">${fmtInt(tot)} tok</div><div class="s">${fmtSec(l.latency_ms)}${l.ttft_ms ? ' · 首字 ' + fmtSec(l.ttft_ms) : ''}</div></td></tr>`;
+    }).join('') : '<tr class="empty-row"><td colspan="2">还没有请求</td></tr>';
+  } catch (e) {}
+}
+async function clearLogs() {
+  if (!confirm('确定彻底清空历史日志并将统计用量归零吗？')) return;
+  try {
+    await fetch('/api/logs/clear?all=1', { method: 'POST', headers: { 'x-admin-key': ADMIN || '' } });
+    loadLogs();
+    loadStats();
+    loadStatus();
+  } catch (e) {}
+}
+
+let cachedAuthUrl = '';
+let LIC = false;
+let knownEmails = null;
+let activeEmail = '';
+
+async function loadStatus() {
+  if (ME) return;
+  try {
+    const res = await fetch('/api/status?_t=' + Date.now());
+    if (res.status === 401) { setServer('warn', 'Locked'); return; }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const host = window.location.origin;
+    gwFill();
+    LIC = data.license_mode === 'app';
+    document.documentElement.classList.toggle('lic-app', LIC);
+    document.documentElement.classList.toggle('can-issue', Boolean(data.can_issue));
+    const KEYTXT = LIC ? (ADMIN || '你的密钥') : '你的授权码';
+    $('cfg-url').textContent = host;
+    $('cfg-claude-cmd').textContent = `export ANTHROPIC_BASE_URL="${host}"\nexport ANTHROPIC_API_KEY="${KEYTXT}"\nclaude`;
+    $('cfg-cursor').textContent = `Base URL: ${host}\nAPI Key:  ${KEYTXT}\nModel:    claude-sonnet-4-6`;
+    $('cfg-curl').textContent = `curl ${host}/v1/messages \\\n  -H "x-api-key: ${KEYTXT}" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -H "content-type: application/json" \\\n  -d '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"hi"}]}'`;
+    cachedAuthUrl = data.auth_url || '';
+    $('btn-oauth-link').href = cachedAuthUrl || '#';
+    const accounts = data.accounts || [];
+    activeEmail = data.active_account?.email || '';
+    $('cur-acc-label').textContent = activeEmail || '未设置';
+    const s = data.stats || {};
+    renderStats(s);
+    $('st-acc').textContent = String(accounts.length).padStart(2, '0');
+    $('acc-count').textContent = accounts.length ? accounts.length + ' 个' : '';
+    if (accounts.length === 0) setServer('warn', 'No account'); else setServer('ok', 'Online');
+    allAccounts = accounts;
+    if (LIC) {
+      const fresh = accounts.filter(a => !a.licensed && knownEmails && !knownEmails.has(a.email));
+      knownEmails = new Set(accounts.map(a => a.email));
+      if (fresh.length && !document.querySelector('.sheet.open')) openLic(fresh[0].email);
+    }
+    if ($('key-email')) $('key-email').innerHTML = accounts.map(a => `<option value="${esc(a.email)}">${esc(a.email)}</option>`).join('') || '<option value="">账号池为空</option>';
+    renderAccounts(accounts);
+    loadLogs();
+  } catch (e) {
+    setServer('err', 'Offline');
+  }
+}
+
+async function loadModels() {
+  try {
+    const d = await (await fetch('/api/models')).json();
+    const list = d.data || d.models || [];
+    if (!list.length) return;
+    $('model-chips').innerHTML = list.map(m => {
+      const note = (m.name || '').match(/\((.*)\)/);
+      return `<span class="model" data-copy="${esc(m.id)}">${esc(m.id)}${note ? `<small>${esc(note[1])}</small>` : ''}</span>`;
+    }).join('');
+  } catch (e) {}
+}
+
+document.addEventListener('click', e => {
+  const m = e.target.closest('.model[data-copy]');
+  if (m) copyVal(m.dataset.copy);
+  const act = e.target.closest('[data-act]');
+  if (act) {
+    if (act.dataset.act === 'switch') switchAccount(act.dataset.email, act);
+    if (act.dataset.act === 'remove') removeAccount(act.dataset.email, act);
+    if (act.dataset.act === 'bind') openBind(act.dataset.email);
+    if (act.dataset.act === 'lic') openLic(act.dataset.email);
+    if (act.dataset.act === 'unbind') doUnbind(act.dataset.email, act);
+  }
+});
+
+function renderAccounts(accounts) {
+  const c = $('acc-list');
+  if (!accounts.length) { c.innerHTML = '<tr class="empty-row"><td colspan="3">暂无账号</td></tr>'; return; }
+  c.innerHTML = accounts.map(acc => {
+    const email = acc.email || '';
+    const on = email === activeEmail;
+    return `<tr class="acc-row${on ? ' active' : ''}">
+      <td><span class="marker"></span></td>
+      <td><div class="acc-email">${esc(email)}</div><div class="acc-role">${on ? '主控' : '备用'} · ${LIC ? (acc.licensed ? '已授权' : acc.has_license ? '<span style="color:var(--warn,#f5a524)">待联网验证</span>' : '<span style="color:var(--warn,#f5a524)">未授权</span>') : acc.boundCode ? '已绑定 ' + esc(acc.boundName || '授权码') : '可用'}</div></td>
+      <td class="r" style="white-space:nowrap;">
+        ${LIC ? (acc.licensed ? '' : `<button class="btn btn-text" data-act="lic" data-email="${esc(email)}">授权</button>`) : acc.boundCode ? `<button class="btn btn-text" data-act="unbind" data-email="${esc(email)}">解绑</button>` : ''}
+        ${on ? '' : `<button class="btn btn-text" data-act="switch" data-email="${esc(email)}">切换</button>`}
+        <button class="btn btn-text danger" data-act="remove" data-email="${esc(email)}">移除</button>
+      </td></tr>`;
+  }).join('');
+}
+
+const level = p => p === null ? 'na' : p >= 50 ? 'ok' : p >= 20 ? 'warn' : 'bad';
+
+function setMeter(key, obj, prefix, fallback) {
+  const p = (obj && obj.percentage !== null && obj.percentage !== undefined) ? Math.max(0, Math.min(100, Number(obj.percentage))) : null;
+  $(`q-${key}-text`).textContent = p === null ? '—' : p + '%';
+  const fill = $(`q-${key}-fill`);
+  fill.style.width = (p === null ? 0 : p) + '%';
+  fill.style.setProperty('--w', p ? p / 100 : 1);
+  $(`bar-${key}`).className = 'bar ' + level(p);
+  let rt = prefix + (obj?.reset_text || fallback);
+  if (obj?.reset_time) {
+    const t = new Date(obj.reset_time);
+    if (!isNaN(t)) rt += ' · ' + t.toLocaleString('zh-CN', { weekday: 'short', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  $(`q-${key}-reset`).textContent = rt;
+  return p;
+}
+function setBadge(id, p) {
+  const b = $(id), l = level(p);
+  b.className = 'tag ' + l;
+  b.textContent = { ok: '充足', warn: '偏低', bad: '紧张', na: '未知' }[l];
+}
+
+async function loadQuota(manual = false) {
+  const btn = $('btn-refresh');
+  setBusy(btn, true, '同步');
+  const emailParam = activeEmail ? 'email=' + encodeURIComponent(activeEmail) + '&' : '';
+  try {
+    const d = await (await fetch('/api/gemini/quota?' + emailParam + '_t=' + Date.now())).json();
+    if (d.ok) {
+      const g5 = setMeter('gemini-5h', d.gemini_5h, '重置 ', '动态');
+      const g7 = setMeter('gemini-7d', d.gemini_7d, '周重置 ', '未触发');
+      const c5 = setMeter('claude-5h', d.claude_5h, '重置 ', '动态');
+      const c7 = setMeter('claude-7d', d.claude_7d, '周重置 ', '未触发');
+      setBadge('gemini-status-badge', g5 ?? g7);
+      setBadge('claude-status-badge', c5 ?? c7);
+      $('sync-time').textContent = '同步于 ' + (d.updated_time || new Date().toLocaleTimeString());
+      if (manual) showToast('配额已更新');
+    } else if (manual) showToast(d.error || d.message || '配额获取失败', true);
+  } catch (e) { if (manual) showToast('配额获取失败', true); }
+  finally { setBusy(btn, false); }
+}
+
+async function runModelTest() {
+  const btn = $('btn-run-tests');
+  setBusy(btn, true, '测试中');
+  const tb = $('test-body');
+  tb.innerHTML = '<tr class="empty-row"><td colspan="4">正在请求上游…</td></tr>';
+  try {
+    const data = await (await fetch('/api/gemini/test', { method: 'POST' })).json();
+    if (data.models && data.models.length) {
+      tb.innerHTML = data.models.map(m => `<tr>
+        <td class="mono">${esc(m.name)}</td>
+        <td class="mono r muted">${esc(m.latency_ms)}ms</td>
+        <td class="r"><span class="tag ${m.ok ? 'ok' : 'bad'}">${m.ok ? 'OK' : 'FAIL'}</span></td>
+        <td class="preview-cell"><span class="preview">${esc(m.preview || m.message || '')}</span></td>
+      </tr>`).join('');
+      const ok = data.models.filter(m => m.ok).length;
+      showToast(`${ok}/${data.models.length} 正常`, ok < data.models.length);
+    } else {
+      tb.innerHTML = `<tr class="empty-row"><td colspan="4" style="color:var(--bad)">${esc(data.message || '测试失败')}</td></tr>`;
+    }
+  } catch (e) {
+    tb.innerHTML = '<tr class="empty-row"><td colspan="4" style="color:var(--bad)">网络异常</td></tr>';
+  } finally { setBusy(btn, false); }
+}
+
+function showLic(email) { $('lic-email').textContent = email; $('lic-input').value = ''; openSheet('sh-lic'); }
+async function openLic(email) {
+  try {
+    const d = await (await fetch('/api/accounts/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })).json();
+    if (d.ok) { if (d.restored) showToast('已自动恢复授权'); loadStatus(); return; }
+  } catch (e) {}
+  showLic(email);
+}
+async function doLic() {
+  const code = $('lic-input').value.trim();
+  if (!code) return showToast('先粘贴授权码', true);
+  const btn = $('btn-lic'); setBusy(btn, true, '…');
+  try {
+    const d = await (await fetch('/api/accounts/license', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: $('lic-email').textContent, code }) })).json();
+    if (d.ok) { showToast('授权成功'); closeSheet(); await loadStatus(); }
+    else showToast(d.error || '授权失败', true);
+  } catch (e) { showToast('网络异常', true); } finally { setBusy(btn, false); }
+}
+async function issueInvite() {
+  const btn = $('btn-inv'); setBusy(btn, true, '…');
+  try {
+    const d = await (await fetch('/api/license/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: $('inv-note').value.trim() }) })).json();
+    if (d.ok) { $('inv-val').textContent = d.code; $('inv-box').classList.add('show'); copyVal(d.code); $('inv-note').value = ''; }
+    else showToast(d.error || '生成失败', true);
+  } catch (e) { showToast('网络异常', true); } finally { setBusy(btn, false); }
+}
+function ago(t) {
+  if (!t) return '—'; const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? '刚刚' : m < 60 ? m + ' 分钟前' : m < 1440 ? Math.round(m / 60) + ' 小时前' : Math.round(m / 1440) + ' 天前';
+}
+async function loadAppUsers() {
+  const tb = $('app-users'); if (!tb) return;
+  try {
+    const d = await (await fetch('/api/app/users')).json();
+    const u = d.users || [];
+    tb.innerHTML = u.length ? u.map(x => `<tr><td><div class="acc-email"${x.revoked ? ' style="text-decoration:line-through;opacity:.6"' : ''}>${esc(x.email)}</div><div class="acc-role">${x.revoked ? '<span style="color:var(--warn,#f5a524)">已吊销</span> · ' : ''}${esc(x.note || '未备注')}${x.version ? ' · v' + esc(x.version) : ''} · ${ago(x.last_seen)}</div></td><td class="r" style="white-space:nowrap"><button class="btn" onclick="revokeUser('${esc(x.invite_id)}', ${x.revoked ? 'false' : 'true'})">${x.revoked ? '恢复' : '吊销'}</button></td></tr>`).join('') : '<tr class="empty-row"><td colspan="2">还没有人激活</td></tr>';
+  } catch (e) { tb.innerHTML = '<tr class="empty-row"><td colspan="2">加载失败</td></tr>'; }
+}
+async function revokeUser(id, on) {
+  if (on && !confirm('吊销后，对方的 App 最多 10 分钟内失效（离线设备最晚 7 天后失效）。确定吊销？')) return;
+  try {
+    const d = await (await fetch('/api/app/users/revoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invite_id: id, revoked: on }) })).json();
+    if (d.ok) { showToast(on ? '已吊销' : '已恢复'); loadAppUsers(); } else showToast('操作失败', true);
+  } catch (e) { showToast('网络异常', true); }
+}
+async function issueLic() {
+  const email = $('iss-email').value.trim();
+  if (!email) return showToast('先填对方邮箱', true);
+  const btn = $('btn-iss'); setBusy(btn, true, '…');
+  try {
+    const d = await (await fetch('/api/license/issue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })).json();
+    if (d.ok) { $('iss-val').textContent = d.code; $('iss-box').classList.add('show'); copyVal(d.code); }
+    else showToast(d.error || '签发失败', true);
+  } catch (e) { showToast('网络异常', true); } finally { setBusy(btn, false); }
+}
+
+let bindEmail = '';
+async function openBind(email) {
+  bindEmail = email; $('bind-email').textContent = email; $('bind-input').value = '';
+  await loadKeys();
+  const free = allKeys.filter(k => !k.bound);
+  $('bind-select').innerHTML = free.length ? free.map(k => `<option value="${esc(k.key)}">${esc(k.name || '未备注')} · ${esc(k.key.slice(-6))}</option>`).join('') : '<option value="">没有未绑定的码，去生成或粘贴</option>';
+  openSheet('sh-bind');
+}
+async function doBind() {
+  const key = $('bind-input').value.trim() || $('bind-select').value;
+  if (!key) return showToast('先选或粘贴授权码', true);
+  const btn = $('btn-bind'); setBusy(btn, true, '…');
+  try {
+    const d = await (await fetch('/api/accounts/bind', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: bindEmail, key }) })).json();
+    if (d.ok) { showToast('已绑定，授权码生效'); closeSheet(); await loadStatus(); loadKeys(); }
+    else showToast(d.error || '绑定失败', true);
+  } catch (e) { showToast('网络异常', true); } finally { setBusy(btn, false); }
+}
+async function doUnbind(email, btn) {
+  if (!confirm('解绑后这个账号的授权码立刻失效，确定？')) return;
+  setBusy(btn, true);
+  try { await fetch('/api/accounts/unbind', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }); showToast('已解绑'); await loadStatus(); loadKeys(); }
+  catch (e) { showToast('解绑失败', true); setBusy(btn, false); }
+}
+
+function openSheet(id) {
+  if (id === 'sh-keys' && document.documentElement.classList.contains('can-issue')) loadAppUsers();
+  document.querySelectorAll('.sheet').forEach(s => s.classList.toggle('open', s.id === id));
+  $('scrim').classList.add('open');
+}
+function closeSheet() {
+  document.querySelectorAll('.sheet').forEach(s => s.classList.remove('open'));
+  $('scrim').classList.remove('open');
+}
+function toggleMenu(force) {
+  const m = $('menu'); m.classList.toggle('open', typeof force === 'boolean' ? force : !m.classList.contains('open'));
+}
+function menuGo(fn) { toggleMenu(false); fn(); }
+document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) toggleMenu(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); toggleMenu(false); } });
+function openSub(group, id) {
+  const nav = document.querySelector(`.subnav[data-group="${group}"]`);
+  nav.querySelectorAll('button').forEach(b => {
+    const on = b.dataset.sub === id; b.classList.toggle('on', on);
+    $(b.dataset.sub).classList.toggle('on', on);
+  });
+}
+document.querySelectorAll('.subnav').forEach(n => n.addEventListener('click', e => {
+  const b = e.target.closest('button[data-sub]'); if (b) openSub(n.dataset.group, b.dataset.sub);
+}));
+function copyAuthUrl() { cachedAuthUrl ? copyVal(cachedAuthUrl) : showToast('授权链接未加载', true); }
+function setMsg(el, type, text) {
+  if (!type) { el.className = 'msg'; el.textContent = ''; return; }
+  el.className = 'msg show ' + type; el.textContent = text;
+}
+
+async function addAccount({ url, body, btn, input, msg, infoText, okText, failText }) {
+  const v = input.value.trim();
+  if (!v) return showToast('请先粘贴内容', true);
+  setBusy(btn, true, '…');
+  setMsg(msg, 'info', infoText);
+  try {
+    const d = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body(v)) })).json();
+    if (d.ok) {
+      setMsg(msg, 'ok', '✓ ' + (d.message || okText)); showToast(okText); input.value = '';
+      await loadStatus(); loadQuota(); await loadKeys();
+      setTimeout(() => { setMsg(msg); closeSheet(); if (d.email) setTimeout(() => { if (LIC) { openLic(d.email); showToast('账号已添加，填入授权码后才能用'); } else { showToast('账号已添加，可以直接用'); } }, 250); }, 900);
+    } else { setMsg(msg, 'err', '✕ ' + (d.error || failText)); showToast(d.error || failText, true); }
+  } catch (e) { setMsg(msg, 'err', '✕ 网络异常：' + e.message); showToast('网络异常', true); }
+  finally { setBusy(btn, false); }
+}
+function submitToken() {
+  return addAccount({ url: '/api/accounts/add-token', body: v => ({ refresh_token: v }), btn: $('btn-submit-token'), input: $('ipt-token'), msg: $('msg-token'),
+    infoText: '正在向 Google 校验 Token…', okText: '账号已添加', failText: 'Token 校验失败' });
+}
+function submitAuthCode() {
+  return addAccount({ url: '/api/oauth/exchange', body: v => ({ code_or_url: v }), btn: $('btn-submit-code'), input: $('ipt-code'), msg: $('msg-oauth'),
+    infoText: '正在交换 Refresh Token…', okText: '授权成功', failText: '换票失败，确认网址含 code=' });
+}
+async function switchAccount(email, btn) {
+  setBusy(btn, true);
+  try {
+    await fetch('/api/accounts/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    showToast('已切换 ' + email); await loadStatus(); loadQuota();
+  } catch (e) { showToast('切换失败', true); setBusy(btn, false); }
+}
+async function removeAccount(email, btn) {
+  if (!confirm('移除账号 ' + email + '？')) return;
+  setBusy(btn, true);
+  try {
+    await fetch('/api/accounts/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    showToast('已移除'); await loadStatus(); loadQuota();
+  } catch (e) { showToast('移除失败', true); setBusy(btn, false); }
+}
+$('ipt-token').addEventListener('keydown', e => { if (e.key === 'Enter') submitToken(); });
+$('ipt-code').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuthCode(); });
+
+/* ==================== Gemini Web 网页版免 Key 直驱管理 ==================== */
+async function loadGeminiWebData(manual = false) {
+  const btn = $('btn-gemini-refresh');
+  if (btn && manual) setBusy(btn, true, '…');
+  try {
+    const res = await fetch('/api/gemini-web/accounts');
+    const data = await res.json();
+    const list = $('gemini-web-list');
+    if (!list) return;
+
+    if (!data.accounts || data.accounts.length === 0) {
+      list.innerHTML = '<tr class="empty-row"><td colspan="3">暂无 Gemini 账号，点击右上角「＋ 录入 Cookie」添加</td></tr>';
+      return;
+    }
+
+    list.innerHTML = data.accounts.map(acc => {
+      const isPrimary = acc.isPrimary;
+      const statusTag = acc.hasSnlm0e ? '<span class="tag ok">握手正常</span>' : '<span class="tag na">未握手</span>';
+      return `<tr class="acc-row ${isPrimary ? 'active' : ''}">
+        <td><span class="marker" style="${isPrimary ? 'background:var(--signal)' : 'background:#4f9dff'}"></span></td>
+        <td>
+          <div class="acc-email" style="font-weight:700">${esc(acc.name)} ${isPrimary ? '<span class="tag ok" style="padding:1px 6px;font-size:10px">主控</span>' : ''}</div>
+          <div class="acc-role" style="font-family:var(--mono);font-size:11px;color:var(--muted,#888);margin-top:2px">${esc(acc.cookieMasked || '已保存 Cookie')} · ${statusTag}</div>
+        </td>
+        <td class="r" style="white-space:nowrap">
+          <button class="btn btn-text" onclick="testGeminiWebAccount('${esc(acc.id)}', this)">测速</button>
+          ${!isPrimary ? `<button class="btn btn-text" onclick="switchGeminiWebAccount('${esc(acc.id)}', this)">设为主控</button>` : ''}
+          <button class="btn btn-text danger" onclick="removeGeminiWebAccount('${esc(acc.id)}', this)">删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    console.warn('加载 Gemini 网页版数据失败:', e);
+  } finally {
+    if (btn && manual) setBusy(btn, false);
+  }
+}
+
+async function submitGeminiWebAccount() {
+  const nameIpt = $('ipt-gemini-name');
+  const cookieIpt = $('ipt-gemini-cookie');
+  const btn = $('btn-submit-gemini');
+  const msg = $('msg-gemini');
+  const cookie = cookieIpt.value.trim();
+  if (!cookie) return showToast('请粘贴 Cookie 文本', true);
+  setBusy(btn, true, '正在握手并测试连通…');
+  setMsg(msg, 'info', '正在连接 Google Gemini 官方服务器进行身份握手…');
+
+  try {
+    const res = await fetch('/api/gemini-web/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nameIpt.value.trim(), cookie })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const testRes = await fetch('/api/gemini-web/accounts/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: data.account.id })
+      });
+      const testData = await testRes.json();
+      if (testData.ok) {
+        setMsg(msg, 'ok', `✓ 连通正常 (${testData.latency}ms)！已自动维持 XSRF 自愈心跳！`);
+      } else {
+        setMsg(msg, 'info', `已保存，测试提示: ${testData.error || '正常'}`);
+      }
+      showToast('Gemini 账号已录入并上线');
+      nameIpt.value = '';
+      cookieIpt.value = '';
+      await loadGeminiWebData();
+      setTimeout(() => { setMsg(msg); closeSheet(); }, 1200);
+    } else {
+      setMsg(msg, 'err', '✕ ' + (data.error || '录入失败'));
+    }
+  } catch (e) {
+    setMsg(msg, 'err', '✕ 网络异常: ' + e.message);
+  } finally {
+    setBusy(btn, false);
+  }
+}
+
+async function testGeminiWebAccount(id, btn) {
+  setBusy(btn, true, '…');
+  try {
+    const res = await fetch('/api/gemini-web/accounts/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`✓ 握手成功 (${data.latency}ms) · ${data.preview}`);
+    } else {
+      showToast('✕ 握手异常: ' + (data.error || '网络超时'), true);
+    }
+    await loadGeminiWebData();
+  } catch (e) {
+    showToast('测试失败: ' + e.message, true);
+  } finally {
+    setBusy(btn, false);
+  }
+}
+
+async function switchGeminiWebAccount(id, btn) {
+  setBusy(btn, true);
+  try {
+    await fetch('/api/gemini-web/accounts/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    });
+    showToast('已设为主控');
+    await loadGeminiWebData();
+  } catch (e) {
+    showToast('切换失败', true);
+  } finally {
+    setBusy(btn, false);
+  }
+}
+
+async function removeGeminiWebAccount(id, btn) {
+  if (!confirm('确定要移除此 Gemini 账号吗？')) return;
+  setBusy(btn, true);
+  try {
+    await fetch('/api/gemini-web/accounts/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    });
+    showToast('已移除 Gemini 账号');
+    await loadGeminiWebData();
+  } catch (e) {
+    showToast('移除失败: ' + e.message, true);
+  } finally {
+    setBusy(btn, false);
+  }
+}
+
+(async () => {
+  await loadStatus();
+  loadQuota();
+  loadGeminiWebData();
+  loadModels();
+  setInterval(loadStatus, 30000);
+  setInterval(loadGeminiWebData, 60000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      loadStatus();
+      loadGeminiWebData();
+    }
+  });
+})();
+</script>
+</body>
+</html>

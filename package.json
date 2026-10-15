@@ -1,0 +1,23 @@
+{
+  "name": "antigravity-plus",
+  "version": "1.0.0",
+  "description": "Antigravity+ Gateway with Google Gemini Web2API (Cookie Direct)",
+  "main": "src/server.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node tests/test-converter.mjs && node tests/test-usage.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "gemini",
+    "claude",
+    "antigravity",
+    "proxy",
+    "anthropic"
+  ],
+  "author": "zr987459",
+  "license": "MIT"
+}

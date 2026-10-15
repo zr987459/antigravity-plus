@@ -1,0 +1,464 @@
+/**
+ * Google Gemini Web2API Provider for Antigravity+
+ * 基于 Google Gemini 官方网页版 StreamGenerate 协议转换
+ * 支持免 API Key 直接使用 CookieBox 提取的官方 Cookie 调用原生 Gemini 2.5/3.6/3.7 模型
+ * 内置 XSRF Token 自愈机制：当 Google 轮换令牌时自动捕获新令牌并重试
+ */
+
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+
+const GEMINI_BASE = 'https://gemini.google.com';
+
+export class GeminiWebAccountManager {
+  constructor(storageFile) {
+    this.storageFile = storageFile;
+    this.accounts = [];
+    this.activeId = '';
+    this.rrIndex = 0;
+    this.init();
+  }
+
+  init() {
+    try {
+      const dir = path.dirname(this.storageFile);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      if (fs.existsSync(this.storageFile)) {
+        const raw = fs.readFileSync(this.storageFile, 'utf-8');
+        this.accounts = JSON.parse(raw);
+      }
+    } catch (e) {
+      console.warn('[GeminiWebProvider] 读取账号配置失败:', e.message);
+    }
+
+    if (!Array.isArray(this.accounts)) this.accounts = [];
+    if (this.accounts.length > 0 && !this.activeId) {
+      const act = this.accounts.find(a => a.active);
+      this.activeId = act ? act.id : this.accounts[0].id;
+    }
+  }
+
+  save() {
+    try {
+      fs.writeFileSync(this.storageFile, JSON.stringify(this.accounts, null, 2), 'utf-8');
+    } catch (e) {
+      console.error('[GeminiWebProvider] 保存账号配置失败:', e);
+    }
+  }
+
+  static parseSapisid(cookieStr) {
+    const m = cookieStr.match(/SAPISID=([^;]+)/);
+    return m ? m[1].trim() : '';
+  }
+
+  static makeSapisidHash(sapisid) {
+    if (!sapisid) return '';
+    const ts = Math.floor(Date.now() / 1000);
+    const str = `${ts} ${sapisid} https://gemini.google.com`;
+    const h = crypto.createHash('sha1').update(str).digest('hex');
+    return `SAPISIDHASH ${ts}_${h}`;
+  }
+
+  getAvailableAccount() {
+    if (this.accounts.length === 0) return null;
+    const available = this.accounts.filter(a => a.active !== false && a.cookie);
+    if (available.length === 0) return this.accounts[0] || null;
+
+    const acc = available[this.rrIndex % available.length];
+    this.rrIndex = (this.rrIndex + 1) % available.length;
+    return acc;
+  }
+
+  addAccount({ name, cookie, email = '' }) {
+    const id = `gem_web_${crypto.randomBytes(6).toString('hex')}`;
+    const sapisid = GeminiWebAccountManager.parseSapisid(cookie);
+
+    let autoName = name;
+    if (!autoName) {
+      const psidMatch = cookie.match(/__Secure-1PSID=([^;]+)/);
+      autoName = psidMatch ? `Gemini-${psidMatch[1].slice(2, 8)}` : `Gemini-${id.slice(-6)}`;
+    }
+
+    const account = {
+      id,
+      name: autoName,
+      email: email || '',
+      cookie: cookie.trim(),
+      sapisid: sapisid || '',
+      active: true,
+      snlm0e: '',
+      bl: 'boq_gemini-web-uiserver_20261013.29_p0',
+      lastRefreshed: 0,
+      addedAt: Date.now(),
+      lastUsed: 0,
+    };
+
+    if (this.accounts.length === 0) {
+      this.activeId = id;
+    }
+
+    this.accounts.push(account);
+    this.save();
+    return account;
+  }
+
+  removeAccount(id) {
+    this.accounts = this.accounts.filter(a => a.id !== id);
+    if (this.activeId === id) {
+      this.activeId = this.accounts.length > 0 ? this.accounts[0].id : '';
+    }
+    this.save();
+  }
+
+  switchAccount(id) {
+    const acc = this.accounts.find(a => a.id === id);
+    if (acc) {
+      this.activeId = id;
+      acc.active = true;
+      this.save();
+      return acc;
+    }
+    return null;
+  }
+
+  async refreshAccountTokens(acc) {
+    const sapisid = acc.sapisid || GeminiWebAccountManager.parseSapisid(acc.cookie);
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      Cookie: acc.cookie,
+      Authorization: GeminiWebAccountManager.makeSapisidHash(sapisid),
+      Referer: 'https://gemini.google.com/',
+    };
+
+    const resp = await fetch('https://gemini.google.com/app', {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) {
+      throw new Error(`Google 页面响应异常 HTTP ${resp.status}`);
+    }
+    const html = await resp.text();
+    const snlm0eMatch = html.match(/"SNlM0e":"([^"]+)"/);
+    const blMatch = html.match(/"cfb2h":"([^"]+)"/);
+
+    if (snlm0eMatch) acc.snlm0e = snlm0eMatch[1];
+    if (blMatch) acc.bl = blMatch[1];
+    acc.lastRefreshed = Date.now();
+    this.save();
+    return { snlm0e: acc.snlm0e, bl: acc.bl };
+  }
+
+  async testAccount(id) {
+    const acc = this.accounts.find(a => a.id === id);
+    if (!acc) return { ok: false, error: '账号不存在' };
+
+    const t0 = Date.now();
+    try {
+      const res = await this.refreshAccountTokens(acc);
+      const latency = Date.now() - t0;
+      if (res.snlm0e) {
+        acc.lastUsed = Date.now();
+        this.save();
+        return {
+          ok: true,
+          latency,
+          snlm0e: res.snlm0e.slice(0, 10) + '...',
+          bl: res.bl,
+          preview: `连通正常 · 已获鉴权令牌 (${latency}ms)`,
+        };
+      } else {
+        return { ok: false, error: 'Cookie 已过期或未能提取到 SNlM0e 令牌' };
+      }
+    } catch (e) {
+      return { ok: false, latency: Date.now() - t0, error: e.message || '网络超时' };
+    }
+  }
+
+  list() {
+    return this.accounts.map(a => ({
+      id: a.id,
+      name: a.name,
+      email: a.email || 'Google 账号',
+      active: a.active !== false,
+      isPrimary: a.id === this.activeId,
+      lastUsed: a.lastUsed || 0,
+      addedAt: a.addedAt || 0,
+      hasCookie: Boolean(a.cookie),
+      hasSnlm0e: Boolean(a.snlm0e),
+      cookieMasked: a.cookie ? `${a.cookie.slice(0, 18)}...${a.cookie.slice(-8)}` : '',
+    }));
+  }
+}
+
+export function isGeminiWebModel(modelName) {
+  if (!modelName) return false;
+  const m = String(modelName).toLowerCase();
+  return (
+    m.includes('gemini-web') ||
+    m === 'gemini-3.6-flash' ||
+    m === 'gemini-3.7-flash' ||
+    m === 'gemini-3.5-flash-thinking'
+  );
+}
+
+function extractPromptFromMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return '';
+  if (messages.length === 1 && typeof messages[0].content === 'string') {
+    return messages[0].content;
+  }
+  return messages.map(m => {
+    const role = m.role === 'user' ? 'Human' : 'Assistant';
+    const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+    return `${role}: ${text}`;
+  }).join('\n\n');
+}
+
+export async function handleGeminiWebRequest(req, res, unifiedReq, accountManager, protocolType = 'openai') {
+  const acc = accountManager.getAvailableAccount();
+  if (!acc) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: '暂无可用的 Gemini Web 账号，请在控制台录入 Cookie。' } }));
+    return;
+  }
+
+  // 确保 SNlM0e 存在且不过期（每 30 分钟刷新一次）
+  if (!acc.snlm0e || Date.now() - (acc.lastRefreshed || 0) > 30 * 60 * 1000) {
+    try {
+      await accountManager.refreshAccountTokens(acc);
+    } catch (e) {
+      console.warn('[GeminiWebProvider] 预刷新 SNlM0e 失败，尝试复用缓存:', e.message);
+    }
+  }
+
+  const prompt = extractPromptFromMessages(unifiedReq.messages);
+  const isStreaming = Boolean(unifiedReq.stream);
+  const modelName = unifiedReq.model || 'gemini-web-flash';
+  const sapisid = acc.sapisid || GeminiWebAccountManager.parseSapisid(acc.cookie);
+
+  const inner = new Array(80).fill(null);
+  inner[0] = [prompt, 0, null, null, null, null, 0];
+  inner[1] = ['zh-CN'];
+  inner[2] = ['', '', '', null, null, null, null, null, null, ''];
+  inner[6] = [0];
+  inner[7] = 1;
+  inner[10] = 1;
+  inner[11] = 0;
+  inner[17] = [[0]]; // 开启 thinking
+  inner[18] = 0;
+  inner[27] = 1;
+  inner[30] = [4];
+  inner[41] = [1];
+  inner[45] = 1;
+  inner[53] = 0;
+  inner[59] = crypto.randomUUID();
+  inner[61] = [];
+  inner[68] = 1;
+
+  const outer = [null, JSON.stringify(inner)];
+  const params = new URLSearchParams();
+  params.set('f.req', JSON.stringify(outer));
+  if (acc.snlm0e) {
+    params.set('at', acc.snlm0e);
+  }
+
+  const reqid = Math.floor(Date.now() / 1000) % 1000000;
+  const streamUrl = `${GEMINI_BASE}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${acc.bl || 'boq_gemini-web-uiserver_20261013.29_p0'}&hl=zh-CN&_reqid=${reqid}&rt=c`;
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    Cookie: acc.cookie,
+    Authorization: GeminiWebAccountManager.makeSapisidHash(sapisid),
+    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+    Origin: 'https://gemini.google.com',
+    Referer: 'https://gemini.google.com/app',
+    'X-Same-Domain': '1',
+  };
+
+  const messageId = `chatcmpl_${crypto.randomBytes(12).toString('hex')}`;
+
+  try {
+    let postResp = await fetch(streamUrl, {
+      method: 'POST',
+      headers,
+      body: params.toString(),
+      signal: AbortSignal.timeout(60000),
+    });
+
+    let raw = await postResp.text();
+
+    // 自愈机制：如果 Google 提示 XSRF 轮换过期 (400 / xsrf)
+    if (!postResp.ok || raw.includes('BardErrorInfo') || raw.includes('xsrf')) {
+      const xsrfMatch = raw.match(/\["xsrf","([^"]+)"/);
+      if (xsrfMatch) {
+        acc.snlm0e = xsrfMatch[1];
+        accountManager.save();
+        params.set('at', acc.snlm0e);
+        // 携带新令牌立即重试
+        postResp = await fetch(streamUrl, {
+          method: 'POST',
+          headers,
+          body: params.toString(),
+          signal: AbortSignal.timeout(60000),
+        });
+        raw = await postResp.text();
+      }
+    }
+
+    if (!postResp.ok) {
+      res.writeHead(postResp.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: `Google Gemini 响应异常 (${postResp.status}): ${raw.slice(0, 150)}` } }));
+      return;
+    }
+
+    // 提取正文文本
+    const texts = [];
+    for (const line of raw.split('\n')) {
+      if (!line.includes('"wrb.fr"') || line.length < 200) continue;
+      try {
+        const arr = JSON.parse(line);
+        const innerData = JSON.parse(arr[0][2]);
+        if (Array.isArray(innerData) && innerData.length > 4 && innerData[4]) {
+          for (const part of innerData[4]) {
+            if (Array.isArray(part) && part.length > 1 && Array.isArray(part[1])) {
+              for (const t of part[1]) {
+                if (typeof t === 'string' && t.length > 0) texts.push(t);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    let reply = '';
+    for (let i = texts.length - 1; i >= 0; i--) {
+      if (texts[i].trim()) {
+        reply = texts[i];
+        break;
+      }
+    }
+
+    if (!reply) {
+      reply = '（Gemini 响应成功，未能解析到正文内容）';
+    }
+
+    // 组装输出
+    if (isStreaming) {
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.socket?.setNoDelay?.(true);
+      res.flushHeaders?.();
+
+      if (protocolType === 'openai') {
+        res.write(
+          `data: ${JSON.stringify({
+            id: messageId,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
+          })}\n\n`
+        );
+
+        // 模拟打字机流式输出
+        const chunkSize = 12;
+        for (let i = 0; i < reply.length; i += chunkSize) {
+          const chunk = reply.slice(i, i + chunkSize);
+          res.write(
+            `data: ${JSON.stringify({
+              id: messageId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model: modelName,
+              choices: [{ index: 0, delta: { content: chunk }, finish_reason: null }],
+            })}\n\n`
+          );
+        }
+
+        res.write(
+          `data: ${JSON.stringify({
+            id: messageId,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          })}\n\n`
+        );
+        res.write('data: [DONE]\n\n');
+        res.end();
+      } else {
+        // Anthropic SSE
+        res.write(
+          `event: message_start\ndata: ${JSON.stringify({
+            type: 'message_start',
+            message: {
+              id: messageId,
+              type: 'message',
+              role: 'assistant',
+              model: modelName,
+              content: [],
+              stop_reason: null,
+              usage: { input_tokens: prompt.length, output_tokens: 0 },
+            },
+          })}\n\n`
+        );
+
+        res.write(
+          `event: content_block_start\ndata: ${JSON.stringify({
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'text', text: '' },
+          })}\n\n`
+        );
+
+        res.write(
+          `event: content_block_delta\ndata: ${JSON.stringify({
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: reply },
+          })}\n\n`
+        );
+
+        res.write(`event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n`);
+        res.write(
+          `event: message_delta\ndata: ${JSON.stringify({
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn', stop_sequence: null },
+            usage: { output_tokens: reply.length },
+          })}\n\n`
+        );
+        res.write('event: message_stop\ndata: {"type":"message_stop"}\n\n');
+        res.end();
+      }
+    } else {
+      // 非流式
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          id: messageId,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: reply },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: {
+            prompt_tokens: prompt.length,
+            completion_tokens: reply.length,
+            total_tokens: prompt.length + reply.length,
+          },
+        })
+      );
+    }
+  } catch (e) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: `Gemini Web 处理异常: ${e.message}` } }));
+  }
+}
