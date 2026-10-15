@@ -199,6 +199,7 @@ export function isGeminiWebModel(modelName) {
     m.includes('gemini-web') ||
     m === 'gemini-3.6-flash' ||
     m === 'gemini-3.7-flash' ||
+    m === 'gemini-3.8-flash' ||
     m === 'gemini-3.5-flash-thinking'
   );
 }
