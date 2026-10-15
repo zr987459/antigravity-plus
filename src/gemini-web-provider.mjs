@@ -395,6 +395,22 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
   const reqid = Math.floor(Date.now() / 1000) % 1000000;
   const streamUrl = `${GEMINI_BASE}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${acc.bl || 'boq_gemini-web-uiserver_20261013.29_p0'}&hl=zh-CN&_reqid=${reqid}&rt=c`;
 
+  const isArgon = modelName.includes('4') || modelName.includes('argon');
+  const modelHash = isArgon ? '95a4c0abcba24364' : '56fdd199312815e2';
+  const modeId = isArgon ? 8 : 1;
+  const legacyMode = isArgon ? 8 : 2;
+
+  const reqUUID = crypto.randomUUID();
+  const modelHeader = [];
+  modelHeader[0] = 1;
+  modelHeader[4] = modelHash;
+  modelHeader[7] = 0;
+  modelHeader[8] = [4, 5, 6, 8, 4, 5, 6, 8];
+  modelHeader[11] = legacyMode;
+  modelHeader[14] = modeId;
+  modelHeader[15] = 2; // extended thinking
+  modelHeader[16] = reqUUID;
+
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     Cookie: acc.cookie,
@@ -403,6 +419,10 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
     Origin: 'https://gemini.google.com',
     Referer: 'https://gemini.google.com/app',
     'X-Same-Domain': '1',
+    'x-goog-ext-525001261-jspb': JSON.stringify(modelHeader),
+    'x-goog-ext-525005358-jspb': JSON.stringify([reqUUID, 1]),
+    'x-goog-ext-73010989-jspb': '[0]',
+    'x-goog-ext-73010990-jspb': '[0,0,0]',
   };
 
   const messageId = `chatcmpl_${crypto.randomBytes(12).toString('hex')}`;
@@ -412,7 +432,7 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
       method: 'POST',
       headers,
       body: params.toString(),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(180000),
     });
 
     let raw = await postResp.text();
@@ -429,7 +449,7 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
           method: 'POST',
           headers,
           body: params.toString(),
-          signal: AbortSignal.timeout(60000),
+          signal: AbortSignal.timeout(180000),
         });
         raw = await postResp.text();
       }
