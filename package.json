@@ -1,6 +1,6 @@
 {
   "name": "antigravity-plus",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Antigravity+ Gateway with Google Gemini Web2API (Cookie Direct)",
   "main": "src/server.mjs",
   "type": "module",

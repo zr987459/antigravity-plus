@@ -1,8 +1,8 @@
 /**
  * Google Gemini Web2API Provider for Antigravity+
  * 基于 Google Gemini 官方网页版 StreamGenerate 协议转换
- * 支持免 API Key 直接使用 CookieBox 提取的官方 Cookie 调用原生 Gemini 2.5/3.6/3.7 模型
- * 内置 XSRF Token 自愈机制：当 Google 轮换令牌时自动捕获新令牌并重试
+ * 支持免 API Key 直接使用 CookieBox 提取的官方 Cookie 调用原生 Gemini 4 / 3.8 / 3.6 模型
+ * 内置 XSRF Token 自愈机制与 Function Calling 工具调用捕获解析器
  */
 
 import fs from 'fs';
@@ -197,23 +197,91 @@ export function isGeminiWebModel(modelName) {
   const m = String(modelName).toLowerCase();
   return (
     m.includes('gemini-web') ||
-    m === 'gemini-3.6-flash' ||
-    m === 'gemini-3.7-flash' ||
-    m === 'gemini-3.8-flash' ||
-    m === 'gemini-3.5-flash-thinking'
+    m.includes('gemini-3.6') ||
+    m.includes('gemini-3.8') ||
+    m.includes('gemini-4-argon')
   );
 }
 
-function extractPromptFromMessages(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return '';
-  if (messages.length === 1 && typeof messages[0].content === 'string') {
-    return messages[0].content;
+function formatToolsInstruction(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return '';
+  const toolDefs = tools.map(t => {
+    const fn = t.function || t;
+    return {
+      name: fn.name,
+      description: fn.description || '',
+      parameters: fn.parameters || fn.input_schema || {},
+    };
+  });
+
+  return (
+    `[System instruction]: You have access to the following tools:\n` +
+    JSON.stringify(toolDefs, null, 2) +
+    `\nTo call a tool, respond ONLY in this exact format:\n` +
+    `\`\`\`tool_call\n{"name": "func_name", "arguments": {...}}\n\`\`\`\n` +
+    `Only use tool_call blocks when necessary.\n\n`
+  );
+}
+
+function parseToolCalls(text) {
+  const toolCalls = [];
+  const pattern = /```tool_call\s*\n([\s\S]*?)\n```/g;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    try {
+      const data = JSON.parse(match[1].trim());
+      if (data && data.name) {
+        toolCalls.push({
+          id: `call_${crypto.randomBytes(6).toString('hex')}`,
+          type: 'function',
+          name: data.name,
+          arguments: typeof data.arguments === 'string' ? data.arguments : JSON.stringify(data.arguments || {}),
+          parsedArgs: data.arguments || {},
+        });
+      }
+    } catch (_) {}
   }
-  return messages.map(m => {
-    const role = m.role === 'user' ? 'Human' : 'Assistant';
-    const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-    return `${role}: ${text}`;
-  }).join('\n\n');
+  const clean = text.replace(pattern, '').trim();
+  return { cleanText: clean, toolCalls };
+}
+
+function extractPromptFromMessages(messages, tools) {
+  let prompt = '';
+  if (tools && tools.length > 0) {
+    prompt += formatToolsInstruction(tools);
+  }
+  if (!Array.isArray(messages) || messages.length === 0) return prompt;
+
+  const parts = [];
+  for (const m of messages) {
+    const role = m.role || 'user';
+    let text = '';
+    if (typeof m.content === 'string') {
+      text = m.content;
+    } else if (Array.isArray(m.content)) {
+      text = m.content.map(c => c.text || JSON.stringify(c)).join('\n');
+    }
+
+    if (role === 'system') {
+      parts.push(`[System]: ${text}`);
+    } else if (role === 'assistant') {
+      if (m.tool_calls && Array.isArray(m.tool_calls)) {
+        const callsStr = m.tool_calls.map(tc => {
+          const fn = tc.function || tc;
+          return `\`\`\`tool_call\n{"name": "${fn.name}", "arguments": ${fn.arguments}}\n\`\`\``;
+        }).join('\n');
+        parts.push(`[Assistant]: ${text}\n${callsStr}`);
+      } else {
+        parts.push(`[Assistant]: ${text}`);
+      }
+    } else if (role === 'tool') {
+      parts.push(`[Tool result for ${m.name || m.tool_call_id || 'tool'}]: ${text}`);
+    } else {
+      parts.push(`[User]: ${text}`);
+    }
+  }
+
+  return prompt + parts.join('\n\n');
 }
 
 export async function handleGeminiWebRequest(req, res, unifiedReq, accountManager, protocolType = 'openai') {
@@ -233,7 +301,8 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
     }
   }
 
-  const prompt = extractPromptFromMessages(unifiedReq.messages);
+  const tools = unifiedReq.tools;
+  const prompt = extractPromptFromMessages(unifiedReq.messages, tools);
   const isStreaming = Boolean(unifiedReq.stream);
   const modelName = unifiedReq.model || 'gemini-web-flash';
   const sapisid = acc.sapisid || GeminiWebAccountManager.parseSapisid(acc.cookie);
@@ -332,17 +401,28 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
       } catch (_) {}
     }
 
-    let reply = '';
+    let fullReply = '';
     for (let i = texts.length - 1; i >= 0; i--) {
       if (texts[i].trim()) {
-        reply = texts[i];
+        fullReply = texts[i];
         break;
       }
     }
 
-    if (!reply) {
-      reply = '（Gemini 响应成功，未能解析到正文内容）';
+    if (!fullReply) {
+      fullReply = '（Gemini 响应成功，未能解析到正文内容）';
     }
+
+    // 工具调用解析 (如果有定义 tools)
+    let cleanReply = fullReply;
+    let toolCalls = [];
+    if (tools && tools.length > 0) {
+      const parsed = parseToolCalls(fullReply);
+      cleanReply = parsed.cleanText;
+      toolCalls = parsed.toolCalls;
+    }
+
+    const hasToolCalls = toolCalls.length > 0;
 
     // 组装输出
     if (isStreaming) {
@@ -364,19 +444,50 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
           })}\n\n`
         );
 
-        // 模拟打字机流式输出
-        const chunkSize = 12;
-        for (let i = 0; i < reply.length; i += chunkSize) {
-          const chunk = reply.slice(i, i + chunkSize);
-          res.write(
-            `data: ${JSON.stringify({
-              id: messageId,
-              object: 'chat.completion.chunk',
-              created: Math.floor(Date.now() / 1000),
-              model: modelName,
-              choices: [{ index: 0, delta: { content: chunk }, finish_reason: null }],
-            })}\n\n`
-          );
+        if (cleanReply) {
+          const chunkSize = 16;
+          for (let i = 0; i < cleanReply.length; i += chunkSize) {
+            const chunk = cleanReply.slice(i, i + chunkSize);
+            res.write(
+              `data: ${JSON.stringify({
+                id: messageId,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model: modelName,
+                choices: [{ index: 0, delta: { content: chunk }, finish_reason: null }],
+              })}\n\n`
+            );
+          }
+        }
+
+        if (hasToolCalls) {
+          for (let i = 0; i < toolCalls.length; i++) {
+            const tc = toolCalls[i];
+            res.write(
+              `data: ${JSON.stringify({
+                id: messageId,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model: modelName,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: i,
+                          id: tc.id,
+                          type: 'function',
+                          function: { name: tc.name, arguments: tc.arguments },
+                        },
+                      ],
+                    },
+                    finish_reason: null,
+                  },
+                ],
+              })}\n\n`
+            );
+          }
         }
 
         res.write(
@@ -385,7 +496,7 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
             object: 'chat.completion.chunk',
             created: Math.floor(Date.now() / 1000),
             model: modelName,
-            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+            choices: [{ index: 0, delta: {}, finish_reason: hasToolCalls ? 'tool_calls' : 'stop' }],
           })}\n\n`
         );
         res.write('data: [DONE]\n\n');
@@ -407,28 +518,56 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
           })}\n\n`
         );
 
-        res.write(
-          `event: content_block_start\ndata: ${JSON.stringify({
-            type: 'content_block_start',
-            index: 0,
-            content_block: { type: 'text', text: '' },
-          })}\n\n`
-        );
+        let blockIndex = 0;
+        if (cleanReply) {
+          res.write(
+            `event: content_block_start\ndata: ${JSON.stringify({
+              type: 'content_block_start',
+              index: blockIndex,
+              content_block: { type: 'text', text: '' },
+            })}\n\n`
+          );
 
-        res.write(
-          `event: content_block_delta\ndata: ${JSON.stringify({
-            type: 'content_block_delta',
-            index: 0,
-            delta: { type: 'text_delta', text: reply },
-          })}\n\n`
-        );
+          res.write(
+            `event: content_block_delta\ndata: ${JSON.stringify({
+              type: 'content_block_delta',
+              index: blockIndex,
+              delta: { type: 'text_delta', text: cleanReply },
+            })}\n\n`
+          );
 
-        res.write(`event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n`);
+          res.write(`event: content_block_stop\ndata: {"type":"content_block_stop","index":${blockIndex}}\n\n`);
+          blockIndex++;
+        }
+
+        if (hasToolCalls) {
+          for (const tc of toolCalls) {
+            res.write(
+              `event: content_block_start\ndata: ${JSON.stringify({
+                type: 'content_block_start',
+                index: blockIndex,
+                content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
+              })}\n\n`
+            );
+
+            res.write(
+              `event: content_block_delta\ndata: ${JSON.stringify({
+                type: 'content_block_delta',
+                index: blockIndex,
+                delta: { type: 'input_json_delta', partial_json: tc.arguments },
+              })}\n\n`
+            );
+
+            res.write(`event: content_block_stop\ndata: {"type":"content_block_stop","index":${blockIndex}}\n\n`);
+            blockIndex++;
+          }
+        }
+
         res.write(
           `event: message_delta\ndata: ${JSON.stringify({
             type: 'message_delta',
-            delta: { stop_reason: 'end_turn', stop_sequence: null },
-            usage: { output_tokens: reply.length },
+            delta: { stop_reason: hasToolCalls ? 'tool_use' : 'end_turn', stop_sequence: null },
+            usage: { output_tokens: fullReply.length },
           })}\n\n`
         );
         res.write('event: message_stop\ndata: {"type":"message_stop"}\n\n');
@@ -437,26 +576,64 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
     } else {
       // 非流式
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          id: messageId,
-          object: 'chat.completion',
-          created: Math.floor(Date.now() / 1000),
-          model: modelName,
-          choices: [
-            {
-              index: 0,
-              message: { role: 'assistant', content: reply },
-              finish_reason: 'stop',
+      if (protocolType === 'openai') {
+        const msg = { role: 'assistant', content: cleanReply || null };
+        if (hasToolCalls) {
+          msg.tool_calls = toolCalls.map(tc => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: tc.arguments },
+          }));
+        }
+        res.end(
+          JSON.stringify({
+            id: messageId,
+            object: 'chat.completion',
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [
+              {
+                index: 0,
+                message: msg,
+                finish_reason: hasToolCalls ? 'tool_calls' : 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: prompt.length,
+              completion_tokens: fullReply.length,
+              total_tokens: prompt.length + fullReply.length,
             },
-          ],
-          usage: {
-            prompt_tokens: prompt.length,
-            completion_tokens: reply.length,
-            total_tokens: prompt.length + reply.length,
-          },
-        })
-      );
+          })
+        );
+      } else {
+        // Anthropic JSON
+        const contentArr = [];
+        if (cleanReply) contentArr.push({ type: 'text', text: cleanReply });
+        if (hasToolCalls) {
+          for (const tc of toolCalls) {
+            contentArr.push({
+              type: 'tool_use',
+              id: tc.id,
+              name: tc.name,
+              input: tc.parsedArgs,
+            });
+          }
+        }
+        res.end(
+          JSON.stringify({
+            id: messageId,
+            type: 'message',
+            role: 'assistant',
+            model: modelName,
+            content: contentArr,
+            stop_reason: hasToolCalls ? 'tool_use' : 'end_turn',
+            usage: {
+              input_tokens: prompt.length,
+              output_tokens: fullReply.length,
+            },
+          })
+        );
+      }
     }
   } catch (e) {
     res.writeHead(500, { 'Content-Type': 'application/json' });

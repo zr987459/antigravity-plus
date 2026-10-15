@@ -20,25 +20,22 @@ export function stableSessionId(anthropicRequest) {
   return '-' + (d.readBigUInt64BE(0) & 0x7fffffffffffffffn).toString();
 }
 
-// 模型别名与降级链映射表 (当 Claude 3P 配额耗尽时，无缝降级到 Gemini 旗舰以防中断)
+// 模型别名与降级链映射表
 export const MODEL_FALLBACK_CHAINS = {
-  'gemini-3.8-flash-fast': ['gemini-2.5-flash', 'gemini-3-flash'],
-  'gemini-3.8-flash-high': ['gemini-3-flash', 'gemini-2.5-flash-thinking'],
-  'gemini-3.8-flash': ['gemini-3-flash', 'gemini-2.5-flash'],
-  'gemini-3.1-pro-high': ['gemini-3.1-pro-low', 'gemini-2.5-pro'],
-  'claude-opus-4-6': ['claude-opus-4-6-thinking', 'claude-sonnet-4-6', 'gemini-3.8-flash-tiered'],
-  'claude-sonnet-4-6': ['claude-opus-4-6-thinking', 'gemini-3.8-flash-tiered'],
+  'gemini-4-argon': ['gemini-3.8-flash'],
+  'gemini-3.8-flash-fast': ['gemini-3.8-flash', 'gemini-3.6-flash'],
+  'gemini-3.8-flash-high': ['gemini-4-argon', 'gemini-3.8-flash'],
+  'gemini-3.8-flash': ['gemini-3.6-flash'],
+  'claude-opus-4-6': ['claude-sonnet-4-6', 'gemini-4-argon'],
+  'claude-sonnet-4-6': ['gemini-3.8-flash'],
 };
 
 // 官方底层模型标识映射
 export function mapToUpstreamModel(clientModel = '') {
   const m = clientModel.toLowerCase();
-  // 保持同源模型一致性：3.8-flash 家族（fast/low/medium/high/tiered）统一映射至 gemini-3.8-flash-tiered，
-  // 确保用户在中途切换到极速出字模式（fast）时，既有几十万 Token 的前缀 KV-Cache 绝不丢失！
+  if (m.includes('4-argon') || m.includes('argon')) return 'gemini-4-argon';
   if (m.includes('3.8-flash') || m.includes('flash-fast')) return 'gemini-3.8-flash-tiered';
   if (m.includes('3.6-flash')) return 'gemini-3.6-flash-high';
-  if (m.includes('3.1-pro')) return 'gemini-3.1-pro-high';
-  if (m.includes('2.5-flash')) return 'gemini-2.5-flash-thinking';
   if (m.includes('claude-opus')) return 'claude-opus-4-6-thinking';
   if (m.includes('claude-sonnet')) return 'claude-sonnet-4-6';
   return clientModel;
