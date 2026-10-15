@@ -192,6 +192,65 @@ export class GeminiWebAccountManager {
   }
 }
 
+export function resolveThinkingConfig(unifiedReq) {
+  let thinkParam = null;
+  const model = String(unifiedReq.model || '').toLowerCase();
+
+  // 1. 模型后缀 @think=N (0=最深思考, 4=关闭思考秒回)
+  const mMatch = model.match(/@think=(\d+)/);
+  if (mMatch) {
+    thinkParam = parseInt(mMatch[1], 10);
+  }
+
+  // 2. OpenAI 标准参数 reasoning_effort: 'low' | 'medium' | 'high' | 'none'
+  if (unifiedReq.reasoning_effort) {
+    const effort = String(unifiedReq.reasoning_effort).toLowerCase();
+    if (effort === 'none') thinkParam = 4;
+    else if (effort === 'low') thinkParam = 3;
+    else if (effort === 'medium') thinkParam = 1;
+    else if (effort === 'high') thinkParam = 0;
+  }
+
+  // 3. Anthropic 标准参数 thinking: { type: 'enabled', budget_tokens: ... }
+  if (unifiedReq.thinking) {
+    if (unifiedReq.thinking.type === 'disabled') {
+      thinkParam = 4;
+    } else if (unifiedReq.thinking.type === 'enabled') {
+      const budget = unifiedReq.thinking.budget_tokens || 16000;
+      if (budget <= 4000) thinkParam = 3;
+      else if (budget <= 16000) thinkParam = 1;
+      else thinkParam = 0;
+    }
+  }
+
+  // 4. 默认值根据模型自动适配
+  if (thinkParam === null) {
+    if (model.includes('argon') || model.includes('thinking')) {
+      thinkParam = 0; // 旗舰与思考模型默认开启最深思考
+    } else {
+      thinkParam = 1; // 极速模型开启自适应思考
+    }
+  }
+
+  let innerThink = thinkParam;
+  let headerThinkLevel = 2; // THINKING_LEVEL_EXTENDED (同步全量深度思考)
+  if (thinkParam === 0) {
+    innerThink = 0;
+    headerThinkLevel = 2; // Level 2 支持完整同步思考输出（Level 3 为网页端异步延迟任务）
+  } else if (thinkParam === 1 || thinkParam === 2) {
+    innerThink = 1;
+    headerThinkLevel = 2;
+  } else if (thinkParam === 3) {
+    innerThink = 3;
+    headerThinkLevel = 1; // Standard
+  } else if (thinkParam >= 4) {
+    innerThink = 4;
+    headerThinkLevel = 0; // Off
+  }
+
+  return { innerThink, headerThinkLevel };
+}
+
 export function isGeminiWebModel(modelName) {
   if (!modelName) return false;
   const m = String(modelName).toLowerCase();
@@ -366,6 +425,8 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
   const modelName = unifiedReq.model || 'gemini-web-flash';
   const sapisid = acc.sapisid || GeminiWebAccountManager.parseSapisid(acc.cookie);
 
+  const { innerThink, headerThinkLevel } = resolveThinkingConfig(unifiedReq);
+
   const inner = new Array(80).fill(null);
   inner[0] = [prompt, 0, null, null, null, null, 0];
   inner[1] = ['zh-CN'];
@@ -374,7 +435,7 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
   inner[7] = 1;
   inner[10] = 1;
   inner[11] = 0;
-  inner[17] = [[0]]; // 开启 thinking
+  inner[17] = [[innerThink]]; // 动态思考深度
   inner[18] = 0;
   inner[27] = 1;
   inner[30] = [4];
@@ -408,7 +469,7 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
   modelHeader[8] = [4, 5, 6, 8, 4, 5, 6, 8];
   modelHeader[11] = legacyMode;
   modelHeader[14] = modeId;
-  modelHeader[15] = 2; // extended thinking
+  modelHeader[15] = headerThinkLevel; // 动态边信道思考层级 (0=off, 1=standard, 2=extended, 3=deep)
   modelHeader[16] = reqUUID;
 
   const headers = {
@@ -461,8 +522,10 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
       return;
     }
 
-    // 提取正文文本
+    // 提取正文文本与原生思维链 (Thoughts)
     const texts = [];
+    let extractedThoughts = '';
+
     for (const line of raw.split('\n')) {
       if (!line.includes('"wrb.fr"') || line.length < 200) continue;
       try {
@@ -470,9 +533,17 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
         const innerData = JSON.parse(arr[0][2]);
         if (Array.isArray(innerData) && innerData.length > 4 && innerData[4]) {
           for (const part of innerData[4]) {
+            // 提取回复正文
             if (Array.isArray(part) && part.length > 1 && Array.isArray(part[1])) {
               for (const t of part[1]) {
                 if (typeof t === 'string' && t.length > 0) texts.push(t);
+              }
+            }
+            // 提取原生思维链 (Candidate Index 37)
+            if (Array.isArray(part) && part.length > 37 && Array.isArray(part[37]) && part[37][0]) {
+              const thNode = part[37][0];
+              if (Array.isArray(thNode) && typeof thNode[0] === 'string' && thNode[0].trim()) {
+                extractedThoughts = thNode[0];
               }
             }
           }
@@ -522,6 +593,18 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
             choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
           })}\n\n`
         );
+
+        if (extractedThoughts) {
+          res.write(
+            `data: ${JSON.stringify({
+              id: messageId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model: modelName,
+              choices: [{ index: 0, delta: { reasoning_content: extractedThoughts }, finish_reason: null }],
+            })}\n\n`
+          );
+        }
 
         if (cleanReply) {
           const chunkSize = 16;
@@ -657,6 +740,9 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
       res.writeHead(200, { 'Content-Type': 'application/json' });
       if (protocolType === 'openai') {
         const msg = { role: 'assistant', content: cleanReply || null };
+        if (extractedThoughts) {
+          msg.reasoning_content = extractedThoughts;
+        }
         if (hasToolCalls) {
           msg.tool_calls = toolCalls.map(tc => ({
             id: tc.id,
@@ -687,6 +773,9 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
       } else {
         // Anthropic JSON
         const contentArr = [];
+        if (extractedThoughts) {
+          contentArr.push({ type: 'thinking', thinking: extractedThoughts });
+        }
         if (cleanReply) contentArr.push({ type: 'text', text: cleanReply });
         if (hasToolCalls) {
           for (const tc of toolCalls) {
