@@ -203,8 +203,8 @@ export function isGeminiWebModel(modelName) {
   );
 }
 
-function formatToolsInstruction(tools) {
-  if (!Array.isArray(tools) || tools.length === 0) return '';
+function formatToolsInstruction(tools, toolChoice = 'auto') {
+  if (!Array.isArray(tools) || tools.length === 0 || toolChoice === 'none') return '';
   const toolDefs = tools.map(t => {
     const fn = t.function || t;
     return {
@@ -214,41 +214,84 @@ function formatToolsInstruction(tools) {
     };
   });
 
+  let requirementNote = 'Autonomously determine if a tool is required to satisfy the user query accurately.';
+  if (typeof toolChoice === 'object' && toolChoice?.function?.name) {
+    requirementNote = `You MUST invoke the specific tool: "${toolChoice.function.name}".`;
+  } else if (toolChoice === 'required') {
+    requirementNote = 'You MUST invoke at least one tool before concluding your response.';
+  }
+
   return (
-    `[System instruction]: You have access to the following tools:\n` +
-    JSON.stringify(toolDefs, null, 2) +
-    `\nTo call a tool, respond ONLY in this exact format:\n` +
-    `\`\`\`tool_call\n{"name": "func_name", "arguments": {...}}\n\`\`\`\n` +
-    `Only use tool_call blocks when necessary.\n\n`
+    `[Tools Available]\n` +
+    `You are equipped with the following autonomous tools:\n` +
+    JSON.stringify(toolDefs, null, 2) + `\n\n` +
+    `[Tool Calling Protocol]\n` +
+    `1. ${requirementNote}\n` +
+    `2. If you need to invoke tools, output a dedicated code block formatted strictly as:\n` +
+    `\`\`\`tool_call\n` +
+    `{"name": "tool_name", "arguments": {<valid_json_arguments>}}\n` +
+    `\`\`\`\n` +
+    `3. You may invoke multiple tool calls in parallel if necessary.\n` +
+    `4. If no tools are required, answer directly in natural language without using tool_call blocks.\n\n`
   );
 }
 
 function parseToolCalls(text) {
   const toolCalls = [];
-  const pattern = /```tool_call\s*\n([\s\S]*?)\n```/g;
-  let match;
-  while ((match = pattern.exec(text)) !== null) {
-    try {
-      const data = JSON.parse(match[1].trim());
-      if (data && data.name) {
-        toolCalls.push({
-          id: `call_${crypto.randomBytes(6).toString('hex')}`,
-          type: 'function',
-          name: data.name,
-          arguments: typeof data.arguments === 'string' ? data.arguments : JSON.stringify(data.arguments || {}),
-          parsedArgs: data.arguments || {},
-        });
-      }
-    } catch (_) {}
+  const patterns = [
+    /```tool_call\s*\n([\s\S]*?)\n```/g,
+    /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g,
+  ];
+
+  let clean = text;
+  for (const pat of patterns) {
+    let match;
+    while ((match = pat.exec(text)) !== null) {
+      try {
+        const rawJson = match[1].trim();
+        const data = JSON.parse(rawJson);
+        if (data && data.name) {
+          toolCalls.push({
+            id: `call_${crypto.randomBytes(6).toString('hex')}`,
+            type: 'function',
+            name: data.name,
+            arguments: typeof data.arguments === 'string' ? data.arguments : JSON.stringify(data.arguments || {}),
+            parsedArgs: data.arguments || {},
+          });
+        }
+      } catch (_) {}
+    }
+    clean = clean.replace(pat, '').trim();
   }
-  const clean = text.replace(pattern, '').trim();
+
+  // Fallback: 如果模型直接用 json 代码块输出 {"name": "...", "arguments": ...}
+  if (toolCalls.length === 0) {
+    const jsonBlockRegex = /```json\s*\n([\s\S]*?)\n```/g;
+    let jm;
+    while ((jm = jsonBlockRegex.exec(text)) !== null) {
+      try {
+        const parsed = JSON.parse(jm[1].trim());
+        if (parsed && parsed.name && (parsed.arguments || parsed.parameters)) {
+          toolCalls.push({
+            id: `call_${crypto.randomBytes(6).toString('hex')}`,
+            type: 'function',
+            name: parsed.name,
+            arguments: JSON.stringify(parsed.arguments || parsed.parameters || {}),
+            parsedArgs: parsed.arguments || parsed.parameters || {},
+          });
+          clean = clean.replace(jm[0], '').trim();
+        }
+      } catch (_) {}
+    }
+  }
+
   return { cleanText: clean, toolCalls };
 }
 
-function extractPromptFromMessages(messages, tools) {
+function extractPromptFromMessages(messages, tools, toolChoice) {
   let prompt = '';
   if (tools && tools.length > 0) {
-    prompt += formatToolsInstruction(tools);
+    prompt += formatToolsInstruction(tools, toolChoice);
   }
   if (!Array.isArray(messages) || messages.length === 0) return prompt;
 
@@ -256,10 +299,22 @@ function extractPromptFromMessages(messages, tools) {
   for (const m of messages) {
     const role = m.role || 'user';
     let text = '';
+    const toolResults = [];
+
     if (typeof m.content === 'string') {
       text = m.content;
     } else if (Array.isArray(m.content)) {
-      text = m.content.map(c => c.text || JSON.stringify(c)).join('\n');
+      const textParts = [];
+      for (const c of m.content) {
+        if (typeof c === 'string') {
+          textParts.push(c);
+        } else if (c.type === 'text') {
+          textParts.push(c.text || '');
+        } else if (c.type === 'tool_result') {
+          toolResults.push(`[Tool Result for ${c.tool_use_id || 'tool'}]: ${typeof c.content === 'string' ? c.content : JSON.stringify(c.content)}`);
+        }
+      }
+      text = textParts.join('\n');
     }
 
     if (role === 'system') {
@@ -270,14 +325,18 @@ function extractPromptFromMessages(messages, tools) {
           const fn = tc.function || tc;
           return `\`\`\`tool_call\n{"name": "${fn.name}", "arguments": ${fn.arguments}}\n\`\`\``;
         }).join('\n');
-        parts.push(`[Assistant]: ${text}\n${callsStr}`);
+        parts.push(`[Assistant]: ${text ? text + '\n' : ''}${callsStr}`);
       } else {
         parts.push(`[Assistant]: ${text}`);
       }
     } else if (role === 'tool') {
-      parts.push(`[Tool result for ${m.name || m.tool_call_id || 'tool'}]: ${text}`);
+      parts.push(`[Tool Result for ${m.name || m.tool_call_id || 'tool'}]: ${text}`);
     } else {
-      parts.push(`[User]: ${text}`);
+      let uMsg = text ? `[User]: ${text}` : '';
+      if (toolResults.length > 0) {
+        uMsg += (uMsg ? '\n' : '') + toolResults.join('\n');
+      }
+      if (uMsg) parts.push(uMsg);
     }
   }
 
@@ -302,7 +361,7 @@ export async function handleGeminiWebRequest(req, res, unifiedReq, accountManage
   }
 
   const tools = unifiedReq.tools;
-  const prompt = extractPromptFromMessages(unifiedReq.messages, tools);
+  const prompt = extractPromptFromMessages(unifiedReq.messages, tools, unifiedReq.tool_choice);
   const isStreaming = Boolean(unifiedReq.stream);
   const modelName = unifiedReq.model || 'gemini-web-flash';
   const sapisid = acc.sapisid || GeminiWebAccountManager.parseSapisid(acc.cookie);
